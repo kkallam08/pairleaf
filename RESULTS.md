@@ -1,5 +1,30 @@
 # Validation results
 
+## AI-assisted matching — November 8, 2026
+
+The personal paired-PDF workflow is implemented: ordinary numbered headings and context, bounded source text, candidate ranking, optional OpenAI checks through a local authenticated helper, source suggestions, explicit preview, manual correction, and locally persisted confirmations. Single-PDF import and scanned-textbook recognition remain pending. No Git commits or pushes were performed.
+
+Validation passed after the final parser and matching changes:
+
+- **17 unit tests** and TypeScript/production build. New cases cover ordinary numbering, repeated exercise context, semantic ranking, contradictions, uncertain or missing matches, and restoration of safe source choices.
+- **Two helper tests** cover invalid source references, persistent usage, caching, the budget ceiling, connection codes, origin binding, and request size limits. No real provider is used by these tests.
+- **Packaged Chrome AI workflow:** all existing and unresolved synthetic questions are checked; contradicted number matches become suggestions; preview renders the original source; confirmation assigns a different-number answer; choices survive reload; changed PDF bytes invalidate choices; cancellation preserves previous matches. No uncaught page errors or unexpected external requests were observed.
+- **M116 local regression:** eight questions and eight solutions detected, with five source regions retained for answer 8.
+- **Original course-pair regression:** 236 matches, 12 sampled source reveals, zoom and margin alignment, preserved reading positions, error recovery, and cancellation still pass offline. The interface suite also passes keyboard, file-drop, dialog, and mobile checks. The new review/preview screenshot was inspected.
+
+Two small live evaluations used the saved key and the same provider adapter as the helper:
+
+| Evaluation | Source correspondence | Review behavior | Estimated usage cost |
+| --- | --- | --- | ---: |
+| Six invented cases across biology, geography, mathematics, and history | 6/6 expected selections, including two absent answers | Changed/uncertain choices require confirmation in the UI | $0.0002846 |
+| Extracted M116 question/solution text | 8/8 expected selections | All eight existing assignments supported; no review required | $0.0041246 |
+
+The M116 model calls took approximately 11.8 seconds in total, around 1.3–1.7 seconds per question. All eight source candidates were available to each call; the fifth-page answer to question 8 remained below the excerpt cap. This measures text correspondence, not a complete visual crop audit. Failed connection attempts retained conservative reservations, bringing the local ledger to **$0.0090589 of $10**. These are token-rate estimates rather than a provider billing receipt.
+
+Six synthetic cases and one same-number mathematics pair do not establish broad cross-subject accuracy. Real non-mathematics documents, changed-order large documents, single-PDF arrangements, ambiguous examples, crop-completeness audits, and confirmations per 100 questions still need a checked release benchmark. AI sees text, not diagrams, and retrieval can omit the correct source when it falls outside the top 12 candidates. No claim of universal accuracy or public-release readiness is made.
+
+Reproduce with `npm.cmd run check`, `npm.cmd run test:helper`, `npm.cmd run test:ai-browser`, and the browser commands in [README.md](README.md#develop-and-validate). Paid evaluations are separate commands there. Reports live in ignored `output/ai-evaluation.json`, `output/ai-m116-evaluation.json`, and `output/ai-interface/`; private documents and screenshots are excluded from release artifacts.
+
 ## Interface redesign — November 8, 2026
 
 The rebuilt extension passed all 13 unit tests, TypeScript checking, and the production build. The full offline Chrome acceptance suite passed again with 236 matches, 12 sampled source-region reveals, preserved question positions, zoom alignment, no overlapping reveal buttons, replacement/error recovery, and cancellation. No external requests or uncaught page errors were recorded.
@@ -8,7 +33,7 @@ The new `npm run test:interface` suite also passed: file-picker keyboard focus, 
 
 An initial Chrome check caught a redundant resize redraw removing a reveal button during navigation. The observer now redraws only when the pane width changes; the rerun passed. PDFs remain canvas-rendered; keyboard-accessible controls do not add screen-reader access to PDF text. Small-screen full-page fits can require zooming.
 
-This delivery changes the interface. Single-PDF matching is explicitly unavailable in the mode chooser, and manual match confirmation/correction remain dependent on plan steps 1–3. These pending features are not covered by the passing checks.
+This earlier delivery changed the interface. The later AI delivery above adds manual confirmation/correction. Single-PDF matching remains unavailable and is not covered by these passing checks.
 
 ## Original document validation
 
@@ -66,6 +91,6 @@ An initial crop after 1.1.2 included a tiny accent from the next answer because 
 
 ## Limits of this evidence
 
-Only these 12 answers were visually audited in full; all 236 answers were not individually inspected. Automated region checks cannot prove every mathematical glyph or arbitrary diagram is present. This result establishes coverage for the supplied pair under the documented layout profile, not all text-based PDFs. Scanned, rotated, encrypted, multi-column, unusually arranged, and plain integer-numbered PDFs are outside the supported profile. Screen-reader access to the PDF's contents and text selection are not implemented. No Web Store, other browser, or restart persistence testing was performed.
+Only these 12 answers were visually audited in full; all 236 answers were not individually inspected. Automated region checks cannot prove every mathematical glyph or arbitrary diagram is present. This result establishes coverage for the supplied pair under the documented layout profile, not all text-based PDFs. Scanned, rotated, encrypted, multi-column, and unusually arranged PDFs remain outside the supported profile. The later AI delivery adds ordinary numbering and saved-choice reload testing. Screen-reader access to the PDF's contents and text selection are not implemented. No Web Store or other-browser validation was performed.
 
 Private evidence is saved locally under ignored `output/` (screenshots and `browser-results.json`) and `tmp/analysis.json`. It is not included in the extension ZIP or source package.

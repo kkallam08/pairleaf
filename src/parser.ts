@@ -2,6 +2,8 @@ import type { Analysis, Heading, PageText, Solution, TextSpan } from "./model";
 
 const identifier =
   /^(?:(?:Problem|Question|Solution)\s+)?(\d+(?:\.\d+){2,})(?:[.)])?(?=\s|$)/i;
+const ordinaryIdentifier =
+  /^(?:(?:Problem|Question|Solution)\s+(\d+(?:\.\d+)*)[.)]?|(\d+(?:\.\d+)*)(?:[.)]))(?=\s|$)/i;
 export function extractIdentifier(text: string): string | undefined {
   return text.trim().match(identifier)?.[1];
 }
@@ -49,6 +51,9 @@ export function analyze(
   pages: PageText[],
   role: "questions" | "solutions",
 ): Analysis {
+  const dotted = pages.some((p) =>
+    p.items.some((i) => isBody(p, i) && identifier.test(i.text.trim())),
+  );
   const bodySize = median(
     pages.flatMap((p) =>
       p.items
@@ -58,9 +63,17 @@ export function analyze(
   );
   const candidates: { p: PageText; i: TextSpan; id: string }[] = [];
   const markers: Marker[] = [];
+  let context = "";
   for (const p of pages) {
     if (isContents(p)) continue;
     for (const i of p.items) {
+      const section = i.text
+        .trim()
+        .match(
+          /^(Chapter|Section|Exercise|Review set)\s+([\d]+[A-Za-z]?(?:\.[\d]+)*)(?:\s|$)/i,
+        );
+      if (!dotted && section)
+        context = `${section[1].toLowerCase()} ${section[2]}`;
       if (!isBody(p, i)) continue;
       const problemSection = i.text.match(
         /^(?:Section\s+)?(\d+(?:\.\d+)+)\s+(?:Problems|Exercises)\b/i,
@@ -78,7 +91,11 @@ export function analyze(
           section: problemSection?.[1],
           problems: !!problemSection,
         });
-      const id = extractIdentifier(i.text);
+      const ordinary = i.text.trim().match(ordinaryIdentifier);
+      const label = dotted
+        ? extractIdentifier(i.text)
+        : (ordinary?.[1] ?? ordinary?.[2]);
+      const id = label && context ? `${context} / ${label}` : label;
       if (!id || i.height > bodySize * 1.15) continue;
       const line = lineAt(p, i);
       if (
@@ -89,7 +106,7 @@ export function analyze(
       // A wrapped reference can start a line; these continuations are never headings.
       if (
         /^\s*(?:that|gives?|shows?|as|respectively|and|is indeed|are systems)\b/.test(
-          i.text.replace(identifier, ""),
+          i.text.replace(dotted ? identifier : ordinaryIdentifier, ""),
         )
       )
         continue;
@@ -126,14 +143,14 @@ export function analyze(
   const warnings: string[] = [];
   if (!headings.length)
     warnings.push(
-      "No supported problem headings found. Use text-based, single-column PDFs with dotted problem identifiers such as 1.1.1. Scanned PDFs need OCR, which is not included.",
+      "No supported problem headings found. Use selectable-text, single-column PDFs with numbered questions such as 1. or 1.1.1. Scanned PDFs need OCR, which is not included.",
     );
   if (role === "questions" && hasProblemSections)
     warnings.push(
       "Only end-of-section problem lists are included. In-section exercises, examples, and definitions are excluded.",
     );
   const solutions: Solution[] =
-    role === "solutions"
+    headings.length > 0
       ? headings.map((h, index) => {
           const next = headings[index + 1];
           const structure = markers.find(
@@ -148,6 +165,17 @@ export function analyze(
             (next ? { page: next.page, top: next.top } : undefined);
           const lastPage = end?.page ?? pages.length;
           const solution: Solution = { ...h, regions: [] };
+          if (
+            candidates.some(
+              (candidate) =>
+                candidate.p.page === h.page &&
+                candidate.i.x > candidate.p.width * 0.45,
+            )
+          ) {
+            solution.issue =
+              "Multiple numbered columns need source-layout review.";
+            return solution;
+          }
           if (lastPage - h.page > 12) {
             solution.issue =
               "Boundary spans more than 12 pages; review the source PDF.";
@@ -192,5 +220,26 @@ export function analyze(
           return solution;
         })
       : [];
-  return { headings, solutions, warnings };
+  for (const [index, heading] of headings.entries()) {
+    const block = solutions[index];
+    heading.regions = block.regions;
+    heading.issue = block.issue;
+    heading.text = block.regions
+      .map((region) =>
+        pages[region.page - 1].items
+          .filter(
+            (item) =>
+              item.bottom > region.y && item.y < region.y + region.height,
+          )
+          .map((item) => item.text)
+          .join(" "),
+      )
+      .join("\n");
+    block.text = heading.text;
+  }
+  return {
+    headings,
+    solutions: role === "solutions" ? solutions : [],
+    warnings,
+  };
 }

@@ -9,7 +9,15 @@ import {
 import { analyze } from "./parser";
 import { matchDocuments } from "./matching";
 import { CanvasPool } from "./rendering";
-import type { Match, PageText } from "./model";
+import type { Match, PageText, Solution } from "./model";
+import {
+  applySuggestion,
+  checkQuestion,
+  pairFingerprint,
+  rankCandidates,
+  restoreChoices,
+  sourceKey,
+} from "./ai";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = markup;
@@ -31,6 +39,11 @@ let zoom = 1,
   lastButton: HTMLButtonElement | undefined;
 const qscroll = el("question-scroll"),
   sscroll = el("solution-scroll");
+let sourceSolutions: Solution[] = [];
+let fingerprint = "";
+let aiController: AbortController | undefined;
+let reviewMatch: Match | undefined;
+let previewPool: CanvasPool | undefined;
 
 function closeSolution(restoreFocus = false) {
   const revealedId = activeId;
@@ -56,6 +69,18 @@ function closeSolution(restoreFocus = false) {
 }
 function reset() {
   revision++;
+  aiController?.abort();
+  aiController = undefined;
+  previewPool?.destroy();
+  sourceSolutions = [];
+  fingerprint = "";
+  reviewMatch = undefined;
+  el<HTMLDialogElement>("match-review").close();
+  el<HTMLDialogElement>("ai-setup").close();
+  el("ai-status").hidden = true;
+  el("ai-progress").textContent = "";
+  el<HTMLButtonElement>("ai-run").disabled = false;
+  el("ai-cancel").hidden = true;
   questionPool?.destroy();
   questionPool = undefined;
   closeSolution();
@@ -112,6 +137,8 @@ async function pair(event: SubmitEvent) {
       sfile.arrayBuffer(),
     ]);
     if (cancelled()) return;
+    fingerprint = await pairFingerprint(qb, sb);
+    if (cancelled()) return;
     const qt = openPdf(new Uint8Array(qb)),
       st = openPdf(new Uint8Array(sb));
     tasks = [qt, st];
@@ -151,6 +178,16 @@ async function pair(event: SubmitEvent) {
         )!,
       );
     matches = matchDocuments(qa.headings, sa.solutions);
+    sourceSolutions = sa.solutions;
+    try {
+      matches = restoreChoices(
+        matches,
+        sourceSolutions,
+        JSON.parse(localStorage.getItem(fingerprint) ?? "null"),
+      );
+    } catch {
+      /* An unavailable or malformed local cache does not block reading. */
+    }
     if (cancelled()) return;
     const ready = matches.filter((m) => m.status === "matched").length;
     el("match-count").textContent =
@@ -168,7 +205,7 @@ async function pair(event: SubmitEvent) {
       `${ready} matched. ${counts.replaceAll(" · ", ", ")}.`;
     el("report-scope").textContent =
       qa.warnings.join(" ") +
-      ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. This version matches dotted numbers such as 1.1.1 in single-column PDFs. Undetected questions are not included in the counts.`;
+      ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses numbers in single-column PDFs. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
     el("question-name").textContent = qfile.name;
     el("question-name").title = qfile.name;
     el("solution-name").textContent = sfile.name;
@@ -405,11 +442,208 @@ function renderReport() {
       missing: "Missing",
       ambiguous: "Duplicate",
       unsafe: "Check bounds",
+      suggested: "Suggested",
     }[m.status];
     row.append(b, locations, status);
+    const review = document.createElement("button");
+    review.className = "review-choice";
+    review.textContent = m.confirmed ? "Change choice" : "Review solution";
+    review.setAttribute("aria-label", `Review solution for ${m.id}`);
+    review.onclick = () => openReview(m);
+    locations.append(review);
     list.append(row);
   }
 }
+function refreshMatches() {
+  const ready = matches.filter((m) => m.status === "matched").length;
+  el("match-count").textContent =
+    `${ready} matched / ${matches.length} questions`;
+  el("report-summary").textContent =
+    `${ready} matched. ${matches.length - ready} need review.`;
+  closeSolution();
+  renderQuestions();
+  renderReport();
+}
+function clearPreview() {
+  previewPool?.destroy();
+  previewPool = undefined;
+  el("review-preview-pages").replaceChildren();
+  el("review-preview-pages").hidden = true;
+}
+function openReview(match: Match) {
+  reviewMatch = match;
+  clearPreview();
+  el("review-title").textContent = `Question ${match.id}`;
+  el("review-evidence").textContent = match.reason;
+  const select = el<HTMLSelectElement>("review-source");
+  select.replaceChildren(new Option("No matching solution", ""));
+  for (const solution of sourceSolutions.filter(
+    (s) => !s.issue && s.regions.length,
+  )) {
+    select.add(
+      new Option(`${solution.id} — page ${solution.page}`, sourceKey(solution)),
+    );
+  }
+  select.value =
+    match.solutions[0] && !match.solutions[0].issue
+      ? sourceKey(match.solutions[0])
+      : "";
+  const blocked =
+    match.questions.length !== 1 || Boolean(match.questions[0].issue);
+  el<HTMLButtonElement>("review-confirm").disabled = blocked;
+  if (blocked)
+    el("review-evidence").textContent +=
+      " Run AI matching to separate duplicate questions. Uncertain question boundaries must be checked in the source PDF.";
+  el<HTMLDialogElement>("match-review").showModal();
+}
+el("review-source").onchange = clearPreview;
+el("review-preview").onclick = () => {
+  clearPreview();
+  const solution = sourceSolutions.find(
+    (s) =>
+      sourceKey(s) === el<HTMLSelectElement>("review-source").value && !s.issue,
+  );
+  if (!solution || !sdoc) return;
+  const container = el("review-preview-pages");
+  container.hidden = false;
+  previewPool = new CanvasPool(container);
+  for (const region of solution.regions) {
+    const label = document.createElement("p");
+    label.textContent = `Solution page ${region.page}`;
+    const crop = document.createElement("div");
+    container.append(label, crop);
+    previewPool.add(
+      crop,
+      sdoc,
+      region,
+      Math.max(0.3, (container.clientWidth - 24) / region.width),
+    );
+  }
+};
+el("review-confirm").onclick = () => {
+  if (
+    !reviewMatch ||
+    reviewMatch.questions.length !== 1 ||
+    reviewMatch.questions[0].issue
+  )
+    return;
+  const key = el<HTMLSelectElement>("review-source").value;
+  const selected = sourceSolutions.find(
+    (s) => sourceKey(s) === key && !s.issue,
+  );
+  if (key && !selected) return;
+  reviewMatch.solutions = selected ? [selected] : [];
+  reviewMatch.status = selected ? "matched" : "missing";
+  reviewMatch.confirmed = true;
+  reviewMatch.reason = "Your confirmed choice";
+  try {
+    const saved = JSON.parse(localStorage.getItem(fingerprint) ?? "{}");
+    const choices = saved && typeof saved === "object" ? saved : {};
+    choices[sourceKey(reviewMatch.questions[0])] = selected
+      ? sourceKey(selected)
+      : null;
+    localStorage.setItem(fingerprint, JSON.stringify(choices));
+  } catch {
+    el("ai-status").hidden = false;
+    el("ai-status").textContent =
+      "Choice applied for this session. Local storage could not save it.";
+  }
+  el<HTMLDialogElement>("match-review").close();
+  refreshMatches();
+  el("report-close").focus();
+};
+el("review-close").onclick = () =>
+  el<HTMLDialogElement>("match-review").close();
+el("match-review").addEventListener("close", clearPreview);
+el("ai-open").onclick = () => el<HTMLDialogElement>("ai-setup").showModal();
+el("ai-close").onclick = () => el<HTMLDialogElement>("ai-setup").close();
+el("ai-setup").addEventListener("close", () => aiController?.abort());
+el("ai-cancel").onclick = () => aiController?.abort();
+el("ai-run").onclick = async () => {
+  const code = el<HTMLInputElement>("helper-code").value.trim();
+  if (!code) {
+    el("ai-progress").textContent = "Enter the helper connection code.";
+    return;
+  }
+  const controller = new AbortController();
+  aiController = controller;
+  const token = revision;
+  el<HTMLButtonElement>("ai-run").disabled = true;
+  el("ai-cancel").hidden = false;
+  const results: Match[] = [];
+  const total = matches.reduce((sum, match) => sum + match.questions.length, 0);
+  let checked = 0,
+    skipped = 0,
+    usage = 0;
+  try {
+    for (const match of matches)
+      for (const [index, question] of match.questions.entries()) {
+        if (controller.signal.aborted)
+          throw new DOMException("Stopped", "AbortError");
+        const displayId =
+          match.questions.length > 1 ? `${match.id} (${index + 1})` : match.id;
+        const ranked = rankCandidates(question, sourceSolutions);
+        const candidates = [
+          ...new Map(
+            [
+              ...match.solutions.filter((s) => !s.issue && s.text?.trim()),
+              ...ranked,
+            ].map((s) => [sourceKey(s), s]),
+          ).values(),
+        ].slice(0, 12);
+        if (question.issue || !question.text?.trim() || !candidates.length) {
+          results.push({ ...match, id: displayId, questions: [question] });
+          skipped++;
+          continue;
+        }
+        el("ai-progress").textContent =
+          `Checking question ${checked + skipped + 1} of ${total}…`;
+        const result = await checkQuestion(
+          question,
+          candidates,
+          code,
+          controller.signal,
+        );
+        results.push(
+          applySuggestion(match, question, result, candidates, displayId),
+        );
+        usage = result.usedUSD;
+        checked++;
+      }
+    if (token !== revision || controller.signal.aborted) return;
+    try {
+      const choices = JSON.parse(localStorage.getItem(fingerprint) ?? "{}");
+      for (const result of results)
+        if (!result.confirmed) delete choices[sourceKey(result.questions[0])];
+      localStorage.setItem(fingerprint, JSON.stringify(choices));
+    } catch {
+      /* Results remain available in this session if local storage is unavailable. */
+    }
+    matches = results;
+    refreshMatches();
+    el("ai-status").hidden = false;
+    el("ai-status").textContent =
+      `AI checked ${checked} questions. ${skipped ? `${skipped} need source-boundary review. ` : ""}Helper usage $${usage.toFixed(4)} of $10.`;
+    aiController = undefined;
+    el<HTMLDialogElement>("ai-setup").close();
+    el<HTMLSelectElement>("report-filter").value = "issues";
+    renderReport();
+    el<HTMLDialogElement>("report").showModal();
+  } catch (error) {
+    if (token === revision)
+      el("ai-progress").textContent = controller.signal.aborted
+        ? "Check stopped. Previous matches kept."
+        : error instanceof Error
+          ? error.message
+          : "AI check failed. Try again.";
+  } finally {
+    if (token === revision) {
+      aiController = undefined;
+      el<HTMLButtonElement>("ai-run").disabled = false;
+      el("ai-cancel").hidden = true;
+    }
+  }
+};
 let finderIndex = -1;
 let finderMatches: Match[] = [];
 const finder = el<HTMLInputElement>("problem");
@@ -600,7 +834,7 @@ new ResizeObserver(() => {
   }, 160);
 }).observe(qscroll);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !el<HTMLDialogElement>("report").open)
+  if (e.key === "Escape" && !document.querySelector("dialog[open]"))
     closeSolution(true);
 });
 window.addEventListener("beforeunload", () => {

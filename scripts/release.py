@@ -14,9 +14,9 @@ with ZipFile(release / "Pairleaf-0.1.0.zip", "w", ZIP_DEFLATED) as archive:
             archive.write(item, item.relative_to(root / "dist"))
 
 source_files = [".gitignore", "package.json", "package-lock.json", "tsconfig.json",
-                "vite.config.ts", "index.html", "README.md", "RESULTS.md",
+                "vite.config.ts", "index.html", "README.md", "RESULTS.md", "PLAN.md",
                 "THIRD_PARTY_NOTICES.txt"]
-source_dirs = ["src", "public", "tests", "scripts"]
+source_dirs = ["src", "public", "tests", "scripts", "server"]
 with ZipFile(release / "Pairleaf-0.1.0-source.zip", "w", ZIP_DEFLATED) as archive:
     for name in source_files:
         archive.write(root / name, "paired-pdf-extension/" + name)

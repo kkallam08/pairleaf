@@ -24,7 +24,7 @@ const fileField = (
 </label>`;
 
 export const markup = `
-<header class="masthead"><span class="brand">${mark}Pairleaf</span><span id="workspace-name">New pair</span><span class="local-badge">Files stay on this device</span></header>
+<header class="masthead"><span class="brand">${mark}Pairleaf</span><span id="workspace-name">New pair</span><span class="local-badge">Local files / optional AI</span></header>
 <div class="workspace">
   <nav class="tool-rail" aria-label="Workspace tools">
     <button id="rail-files" class="rail-button" aria-label="Open PDFs" title="Open PDFs" aria-current="page">${folder}</button>
@@ -40,14 +40,14 @@ export const markup = `
           <label class="mode-option pending"><input type="radio" name="mode" value="single" disabled aria-describedby="single-mode-note"><span>Answers in this PDF<small id="single-mode-note">Coming in the matching update</small></span></label>
         </fieldset>
         <div class="file-grid">${fileField("questions", "Questions PDF")}${fileField("solutions", "Solutions PDF")}</div>
-        <div class="pair-actions"><p class="quiet">Matching question numbers, such as <strong>1.1.1</strong>.</p><button id="cancel" type="button" hidden>Cancel</button><button id="pair" class="primary" type="submit">Pair PDFs</button></div>
+        <div class="pair-actions"><p class="quiet">Numbered questions, such as <strong>1. or 1.1.1</strong>.</p><button id="cancel" type="button" hidden>Cancel</button><button id="pair" class="primary" type="submit">Pair PDFs</button></div>
       </form>
       <div id="progress-wrap" hidden><progress id="progress" max="100" value="0"></progress><p id="progress-text" role="status" aria-live="polite"></p></div>
       <p id="error" role="alert" hidden></p>
     </section>
     <section id="reader" hidden aria-label="Paired PDF reader">
-      <div class="pair-bar"><strong id="match-count"></strong><button id="report-open" class="text-button">Review matches</button><button id="replace">Change PDFs</button></div>
-      <div class="reading-grid">
+      <div class="pair-bar"><strong id="match-count"></strong><button id="ai-open" class="text-button">AI matching</button><button id="report-open" class="text-button">Review matches</button><button id="replace">Change PDFs</button></div>
+      <p id="ai-status" class="ai-status" role="status" hidden></p><div class="reading-grid">
         <section class="question-column" aria-label="Questions">
           <div class="document-tab"><span class="tab-mark" aria-hidden="true"></span><strong>Questions</strong><span id="question-name"></span></div>
           <div class="reader-toolbar">
@@ -65,4 +65,4 @@ export const markup = `
     </section>
   </main>
 </div>
-<dialog id="report" aria-labelledby="report-title"><div class="dialog-heading"><h2 id="report-title">Review matches</h2><button id="report-close" aria-label="Close matching report">${close}</button></div><p id="report-summary"></p><div class="report-tools"><label>Show <select id="report-filter"><option value="issues">Needs attention</option><option value="all">All questions</option></select></label><span>Answers hidden</span></div><div id="report-list" tabindex="0" aria-label="Match results"></div><details class="report-details"><summary>Matching details</summary><p id="report-scope" class="quiet"></p></details></dialog>`;
+<dialog id="ai-setup" aria-labelledby="ai-title"><div class="dialog-heading"><h2 id="ai-title">AI matching</h2><button id="ai-close" aria-label="Close AI setup">×</button></div><p>Check existing matches and find possible solutions for unresolved questions.</p><p class="quiet">Selected question and solution text will be sent to OpenAI. Answers stay hidden until you preview them.</p><label class="helper-code">Helper connection code<input id="helper-code" type="password" autocomplete="off"></label><p class="quiet">Start the helper with <code>npm run ai</code> in the Pairleaf folder, then paste its connection code here.</p><div class="ai-actions"><button id="ai-cancel" hidden>Stop check</button><button id="ai-run" class="primary">Check matches</button></div><p id="ai-progress" role="status"></p></dialog><dialog id="match-review" aria-labelledby="review-title"><div class="dialog-heading"><h2 id="review-title">Review solution</h2><button id="review-close" aria-label="Close solution review">×</button></div><p id="review-evidence"></p><label class="helper-code">Solution source<select id="review-source"></select></label><div class="ai-actions"><button id="review-preview">Preview answer</button><button id="review-confirm" class="primary">Confirm choice</button></div><div id="review-preview-pages" tabindex="0" aria-label="Answer preview" hidden></div></dialog><dialog id="report" aria-labelledby="report-title"><div class="dialog-heading"><h2 id="report-title">Review matches</h2><button id="report-close" aria-label="Close matching report">${close}</button></div><p id="report-summary"></p><div class="report-tools"><label>Show <select id="report-filter"><option value="issues">Needs attention</option><option value="all">All questions</option></select></label><span>Answers hidden</span></div><div id="report-list" tabindex="0" aria-label="Match results"></div><details class="report-details"><summary>Matching details</summary><p id="report-scope" class="quiet"></p></details></dialog>`;

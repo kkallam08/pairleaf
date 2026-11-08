@@ -5,3 +5,5 @@ tmp/
 output/
 *.pdf
 *.tsbuildinfo
+.env
+.env.*

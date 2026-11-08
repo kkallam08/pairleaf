@@ -891,3 +891,65 @@ dialog::backdrop {
     mask-image: none;
   }
 }
+
+.helper-code {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  margin: 20px 0;
+}
+.helper-code input,
+.helper-code select {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-width: 0;
+}
+.ai-actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0;
+}
+#ai-progress,
+#review-evidence {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ai-status {
+  margin: 0;
+  padding: 8px 20px;
+  font-size: 12px;
+  background: #e6dff0;
+}
+#reader:has(.ai-status:not([hidden])) .reading-grid {
+  height: calc(100dvh - 136px);
+}
+#review-preview-pages {
+  max-height: 42vh;
+  overflow: auto;
+  background: var(--desk);
+  padding: 12px;
+}
+#review-preview-pages p {
+  font-size: 12px;
+}
+.review-choice {
+  align-self: start;
+  font-size: 11px;
+  margin-top: 5px;
+}
+@media (max-width: 760px) {
+  .pair-bar {
+    height: auto;
+    min-height: 44px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+  }
+  #reader .reading-grid {
+    height: calc(100dvh - 120px);
+  }
+  #reader:has(.ai-status:not([hidden])) .reading-grid {
+    height: calc(100dvh - 170px);
+  }
+}

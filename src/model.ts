@@ -22,6 +22,9 @@ export interface Heading {
   x: number;
   y: number;
   top: number;
+  regions?: Region[];
+  text?: string;
+  issue?: string;
 }
 export interface Region {
   page: number;
@@ -34,13 +37,16 @@ export interface Solution extends Heading {
   regions: Region[];
   issue?: string;
 }
-export type MatchStatus = "matched" | "missing" | "ambiguous" | "unsafe";
+export type MatchStatus =
+  "matched" | "missing" | "ambiguous" | "unsafe" | "suggested";
 export interface Match {
   id: string;
   status: MatchStatus;
   questions: Heading[];
   solutions: Solution[];
   reason: string;
+  aiChecked?: boolean;
+  confirmed?: boolean;
 }
 export interface Analysis {
   headings: Heading[];

@@ -10,7 +10,12 @@
     "check": "npm run test && npm run build",
     "inspect": "tsx scripts/inspect.ts",
     "test:browser": "node scripts/browser-test.mjs",
-    "test:interface": "node scripts/interface-test.mjs"
+    "test:interface": "node scripts/interface-test.mjs",
+    "ai": "node --env-file=.env.local server/start.mjs",
+    "test:helper": "node scripts/check-helper.mjs",
+    "evaluate:ai": "node --env-file=.env.local scripts/evaluate-ai.mjs",
+    "evaluate:m116": "node --env-file=.env.local --import tsx scripts/evaluate-m116.ts",
+    "test:ai-browser": "node scripts/check-ai-browser.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.5.438"

@@ -1,95 +1,88 @@
 # Pairleaf
 
-A local Chrome extension that pairs a questions PDF with a solutions PDF. Read the original question pages and reveal one complete numbered solution, including its subparts, in a separate panel.
+Read a question PDF and reveal its existing solution from a second PDF beside it. Matching runs locally by default. Optional AI compares question and solution excerpts when numbering or wording differs, and checks existing assignments for contradictions.
 
-## Install the finished build
+## Install or update
 
-1. In Chrome, open `chrome://extensions`.
-2. Turn on **Developer mode**, then choose **Load unpacked**.
-3. Select this project's **`dist`** folder. Select the folder containing `manifest.json`, not the project root or a ZIP file.
-4. Open Chrome's Extensions menu and click **Pairleaf - paired PDF study reader**. Pin it if you want a toolbar shortcut.
-5. Select **Questions PDF** and **Solutions PDF**, then click **Pair PDFs**.
+1. Open `chrome://extensions` in Chrome and enable **Developer mode**.
+2. Choose **Load unpacked** and select this project's **`dist`** folder, containing `manifest.json`. If Pairleaf is already installed from that folder, click **Reload** on its card instead.
+3. Open a new Pairleaf tab from Chrome's Extensions menu.
+4. Select or drop the **Questions PDF** and **Solutions PDF**, then click **Pair PDFs**.
 
-The unpacked build is already included locally. A portable ZIP is in `release/Pairleaf-0.1.0.zip`; extract it first and load its extracted folder. No development server, account, key, backend, or internet connection is needed to use the installed extension. Keep the installed folder in place; Chrome loads it from that location.
+The build is included locally. `release/Pairleaf-0.1.0.zip` is the portable extension; extract it before loading. Keep the installed folder in place. Local matching and reading need no helper, key, or internet connection. **Answers in this PDF** remains disabled until the single-PDF engine is implemented.
 
-## Read and reveal
+## Use AI matching
 
-- Select files with the native file picker or drop one PDF into each file area. **Answers in this PDF** is visibly unavailable until the matching update implements that mode.
-- The initial view jumps to the first detected problem. **Find a question** filters identifiers as you type; use the arrow keys and Enter, or select a result. Navigation keeps answers hidden. Page controls navigate the complete question document.
-- **Show solution** sits outside the original PDF page and follows the problem's position at every zoom. At smaller scales, tightly spaced buttons use a second margin lane so they remain clickable.
-- The right panel shows cropped original solution pages in order. Page labels identify continuations. Opening a different answer replaces the current answer without scrolling the question pane.
-- Use the two independent zoom controls to enlarge questions or solutions. Large zoom levels allow horizontal scrolling. Percentages are relative to each pane's fit scale. On very small screens, revealing an answer opens a lower pane; closing it restores the full reading area. Enlarge the PDF when its full-page fit is too small to read.
-- Close an answer with **×** or **Escape**. Closing returns keyboard focus to its reveal button without moving the document.
-- **Review matches** lists identifiers, question and solution page numbers, missing matches, duplicate identifiers, and uncertain boundaries. Additional detection details are collapsed. It contains no solution text. Duplicate or uncertain entries never have an enabled reveal action; confirmation and correction remain planned work.
-- **Change PDFs** clears the current documents, matches, and rendered answers. Select a new pair. **Cancel** stops a scan; invalid or unsupported PDFs leave file selection available.
+Your API key belongs in this project's ignored `.env.local` as `OPENAI_API_KEY=...`. The key is already configured on this machine. With Node.js 24 installed, open a VS Code terminal in this directory and run:
 
-PDF bytes and extracted text live in the reader's memory. Closing or reloading that tab requires selecting the files again. One pair is held per reader tab. Files are never uploaded or added to the extension package.
+```powershell
+npm.cmd run ai
+```
+
+Keep that terminal open. It prints a temporary **connection code**, separate from the API key. After pairing your PDFs, choose **AI matching**, paste that code, then **Check matches**. Restarting the helper creates a new code. Stop it with Ctrl+C.
+
+The helper sends extracted question text and up to 12 candidate solution excerpts per question to OpenAI using `gpt-6-luna`. The current assignment is included among those candidates, so AI checks existing matches as well as unresolved questions. Images and whole PDF files are not sent. Each excerpt is capped at approximately 12,000 characters; shortened excerpts require review. Candidate retrieval uses shared terms and identifiers, so a relevant source can be missed in a large or differently worded document.
+
+New, changed, and uncertain assignments appear as **Suggested**. An existing assignment remains matched only when the model supports it and the selected excerpts are complete. Open **Review solution**, inspect the proposed source, optionally choose another source or **No matching solution**, and **Confirm choice**. Answer content appears after **Preview answer** or a normal reveal action. The model is instructed to keep its correspondence explanation free of answer values and solution steps; its explanation is still model output.
+
+The API matches existing source regions; it does not generate solutions or verify their correctness. Uncertain layout boundaries are skipped. Cancelling or failing a run keeps the prior matches. Requests that already reached the provider may still incur usage.
+
+The helper records estimated usage in `tmp/ai-usage.json` and stops conservatively before the agreed $10 experimental ceiling. It reserves a buffered amount before each request; failed or interrupted calls retain that reservation. Identical requests are cached until the helper exits. This ledger is an estimate, not a billing receipt or an account-wide spending control. Preserve it across restarts. A lock prevents the helper and evaluation scripts from running concurrently; after a forced crash, verify the old process has stopped before removing `tmp/ai-helper.lock`.
+
+## Read, review, and remember choices
+
+- **Find a question** filters identifiers; use arrows and Enter or select a result. Navigation keeps answers hidden.
+- **Show solution** follows the question in the page margin. Original solution crops appear in order in the adjoining pane, including continuation pages. The question's reading position stays fixed.
+- Question and answer zoom are independent. On narrow screens the answer occupies a lower pane. Close it with **×** or **Escape**.
+- **Review matches** lists source pages, missing answers, duplicate identifiers, layout issues, and AI suggestions. **Review solution** supports manual correction for individually identified questions with safe boundaries, even without running AI.
+- Confirmed choices are saved locally against hashes of both complete PDF files. Reimporting the same files restores them; editing either file creates a different pair. AI suggestions are session-only. A new AI run can dispute a saved choice and return it to review.
+- **Change PDFs** clears the current reader; **Cancel** stops local extraction. Reloading requires selecting the files again. One pair is held per reader tab.
+
+PDF bytes and extracted text stay in reader memory until the tab closes or changes documents, except for excerpts you explicitly send through AI matching. Saved choices contain source identifiers and document hashes, not PDF text. The helper holds the API key; it is never sent to the browser. Its random connection code and origin checks restrict access to the paired extension or local development page.
 
 ## Supported documents and limits
 
-This is a deliberately narrow MVP for **upright, text-based, single-column PDFs with explicit dotted identifiers**, such as `1.1.1` or `12.4.16`. The identifiers must be actual left-aligned problem headings, consistently positioned, with recognizable section transitions and conventional page margins. A trailing period and the words Problem, Question, or Solution are supported. Numbered subparts stay with their parent problem.
+The personal build supports upright, selectable-text, single-column PDFs with consistently positioned headings such as `1.1.1`, `1.`, `1)`, or `Question 1`. It prefers the original dotted-identifier profile when present. Ordinary numbering can include chapter, section, exercise, and review-set context. Subparts stay with the whole numbered question. Mixed numbering styles and unusual layouts can need a new parsing profile.
 
-When question pages contain headings like **Section 1.1 Problems**, only those problem lists are indexed. Definitions, examples, prose references, contents entries, running headers, and in-section exercises are excluded. Otherwise the parser infers a consistent problem-label lane from the document. It does not use the supplied filenames, a mapping table, semantic inference, or an AI service.
+For course notes with headings like **Section 1.1 Problems**, the original profile indexes those lists rather than definitions, examples, prose references, and contents entries. The parser uses conventional margins and text geometry to bound source regions. Multiple numbered columns, image-only continuations, and boundaries spanning more than 12 pages require source review. Detection cannot prove completeness on an arbitrary PDF.
 
-The implementation uses a conservative layout profile, not a universal PDF understanding system. It assumes page-body content is between 5.5% and 95% of page height, uses extracted glyph geometry with accent padding to separate answers, and clips small horizontal paper margins. Changed layouts, multi-column pages, irregular typography, mislabelled identifiers, or artwork outside the body may require a new parsing profile. Counts refer to **detected headings**, not independently established completeness for every possible PDF. Do not treat successful matching on the supplied course PDFs as evidence that all PDFs are supported.
+Single-PDF textbooks, scans/OCR, handwriting, rotated or password-protected PDFs, and visual recognition of formulas or diagrams remain future work. Diagrams are preserved in original source crops, but the AI receives only extracted text. It can miss a correspondence or suggest an incorrect one. The small checked examples do not establish broad cross-subject accuracy or the planned review-burden target. See [RESULTS.md](RESULTS.md).
 
-Scans/OCR, rotated or password-protected PDFs, image-only solution continuations, plain integer-only numbering, general semantic matching, manual pairing, hints, AI answers, and persistence across reloads are outside this release. Textless artwork inside a continuation and boundaries spanning more than 12 pages are flagged for source review. A genuinely blank page is skipped. The original PDF remains unchanged, including any mistakes in its mathematics.
+Pages render near the viewport, with bounded concurrent jobs and release of distant canvases. Controls and reports are keyboard accessible. PDF text selection, active links, printing, and screen-reader access to the full PDF text are not implemented. The original documents remain unchanged.
 
-Pages are rendered when near a pane's viewport, with two concurrent jobs per pane, cancellation when leaving view, a pixel cap per canvas, and release of distant bitmaps. Extracted positions remain in memory for matching and navigation. The question pages are canvas renderings; PDF text selection, link activation, printing, and screen-reader access to the full PDF text are not implemented. Controls and reports are keyboard accessible.
+## Develop and validate
 
-## Development
-
-Use Node.js 24 and npm. Open this directory in VS Code, then:
+Use Node.js 24 and npm in this directory:
 
 ```powershell
 npm.cmd ci
 npm.cmd run check
+npm.cmd run test:helper
+npm.cmd run test:interface
+npm.cmd run test:ai-browser
 ```
 
-`check` runs the synthetic unit tests, TypeScript checking, and a production build. Vite emits the viewer and bundled worker; `scripts/package.mjs` adds the local CMaps, fonts, WASM assets, and notices. After rebuilding, click **Reload** on the extension's card in `chrome://extensions` and open a new reader tab.
+`check` runs unit tests, TypeScript checking, and the production build, including local PDF.js fonts, worker, CMaps, and WASM assets. Reload the extension and open a new reader tab after rebuilding. `npm.cmd run dev` serves the interface at `http://127.0.0.1:5181`; the packaged extension is the supported runtime.
 
-For UI development:
+Browser tests use isolated Chrome profiles. `test:ai-browser` uses a fake model provider and the locally supplied M116 files; it makes no paid API requests. The full course-pair regression accepts paths to those specific validation documents:
 
 ```powershell
-npm.cmd run dev
+npm.cmd run test:browser -- "C:\path\MATH115F26CourseNotes.pdf" "C:\path\MATH115F26SolutionstoEndofSectionProblems.pdf"
 ```
 
-This starts Vite at `http://127.0.0.1:5181`. The packaged Chrome extension is the supported runtime; the development page is useful for layout changes, but production bundling is what supplies the auxiliary PDF assets. It does not modify the unrelated parent project's application or ports.
-
-## Reproduce the local validation
-
-The course PDFs are **not included**. Give the commands paths to your own copies:
+The following evaluations make paid requests with the saved key and shared usage ledger. Close the helper first. The first uses six invented cases; the second expects the supplied eight-question M116 pair:
 
 ```powershell
-node scripts/raw-inspect.mjs "C:\path\questions.pdf" "C:\path\solutions.pdf"
-npm.cmd run inspect
-npm.cmd run check
-npm.cmd run test:browser -- "C:\path\questions.pdf" "C:\path\solutions.pdf"
+npm.cmd run evaluate:ai
+npm.cmd run evaluate:m116 -- "C:\path\M116P7.pdf" "C:\path\M116P7sol.pdf"
 ```
 
-The browser acceptance script is specific to the supplied validation pair's expected counts and sampled identifiers. These expectations live only in the test script; the extension itself contains no document-specific mappings. It loads the actual `dist` extension into an isolated Chrome profile, disables network access, pairs the files through real file inputs, checks navigation/rendering/recovery, and captures screenshots. It uses modern Chrome's `Extensions.loadUnpacked` debugging command; ordinary installation uses **Load unpacked** instead. Your daily Chrome profile is not used or modified.
+`output/` holds private screenshots and evaluation reports; `tmp/` holds usage, locks, extraction data, and disposable browser profiles. These directories, `.env*`, PDFs, build archives, and dependencies are ignored. Release packaging uses an explicit allowlist and excludes keys, private documents, and validation evidence. The source ZIP includes the helper; an extension ZIP alone cannot run AI without it.
 
-After building, `npm run test:interface` checks file drops, keyboard search and focus restoration, the review dialog, and desktop/mobile reading positions with synthetic PDFs. Its screenshots and results are in `output/interface/`.
+## Code and permissions
 
-`tmp/` contains local extraction data and disposable Chrome profiles; `output/` contains private validation screenshots and machine-readable results. Both are ignored, along with PDFs, `dist/`, `release/`, and dependencies. **Never distribute the extraction cache or screenshots of private PDFs.** The small synthetic unit fixtures and in-memory browser fixtures contain invented text and no course material.
+`src/parser.ts` detects and bounds sources; `src/matching.ts` joins identifiers; `src/ai.ts` ranks candidates, validates source choices, and restores corrections. `server/` implements the authenticated loopback helper, provider call, and usage ceiling. The reader and original-PDF rendering live in `src/main.ts`, `src/ui.ts`, `src/style.css`, and `src/rendering.ts`.
 
-See [RESULTS.md](RESULTS.md) for the measured counts, 12 visual samples, and remaining validation limits.
+The Manifest V3 package allows a loopback host and restricts connections to itself and the helper on `127.0.0.1:5182`. Only the Node helper contacts OpenAI. There are no content scripts or analytics. PDF scripts, annotations, and links are not executed by the canvas viewer. PDF.js licenses and assets are bundled; see `THIRD_PARTY_NOTICES.txt`.
 
-## Code map
-
-- `src/model.ts`: heading, region, solution, and match records, in top-left PDF coordinates.
-- `src/pdf.ts`: local PDF loading, bundled worker configuration, positioned extraction, and textless-page checks.
-- `src/parser.ts`: heading detection, structural scope, and ordered solution regions.
-- `src/matching.ts`: unique-identifier joins and explicit missing/duplicate/unsafe statuses.
-- `src/rendering.ts`: on-demand original PDF rendering and canvas lifecycle.
-- `src/main.ts`, `src/ui.ts`, and `src/style.css`: selection, progress, reader, reports, navigation, and zoom.
-- `public/manifest.json` and `public/background.js`: Manifest V3 package and toolbar action.
-- `tests/`: focused synthetic tests. `scripts/browser-test.mjs`: isolated packaged-Chrome acceptance checks.
-
-A later hint feature can consume a `Solution` record and its page regions without changing matching or rendering. No hint generation is included now.
-
-## Dependencies and permissions
-
-PDF rendering uses [Mozilla PDF.js](https://mozilla.github.io/pdf.js/examples/). The [Manifest V3 content security policy](https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy) limits script and connection sources to this extension. PDF scripts, annotations, and links are not executed by this canvas-only viewer. There are no host permissions, content scripts, analytics, or remote endpoints. PDF.js and its auxiliary asset licenses are bundled; see `THIRD_PARTY_NOTICES.txt`.
-
-No Git commits, pushes, publication, or Web Store submission were performed.
+This is a personal/tester build. Public authentication, hosting, billing, and Web Store distribution remain in [PLAN.md](PLAN.md). No Git commits or pushes were performed.
