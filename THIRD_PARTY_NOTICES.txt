@@ -1,0 +1,4 @@
+Pairleaf bundles Mozilla PDF.js (pdfjs-dist 6.5.438), licensed under Apache License 2.0.
+The full license is included in the extension as PDFJS-LICENSE.txt.
+PDF.js font, CMap and WASM assets retain the notices shipped in pdfjs-dist.
+Development tooling is listed in package.json and package-lock.json; it is not shipped in the extension.

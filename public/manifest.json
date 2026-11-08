@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Pairleaf - paired PDF study reader",
+  "version": "0.1.0",
+  "description": "Pair local questions and solutions. Reveal one original solution at a time, without losing your place.",
+  "minimum_chrome_version": "130",
+  "action": { "default_title": "Open Pairleaf" },
+  "background": { "service_worker": "background.js" },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'"
+  }
+}
