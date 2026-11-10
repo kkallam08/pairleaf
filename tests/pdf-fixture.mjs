@@ -1,19 +1,26 @@
 /** Tiny synthetic PDFs, generated in memory. No private course documents in tests. */
 export function pdfFixture(lines = [], graphics = false) {
+  return pdfBookFixture([lines], graphics);
+}
+export function pdfBookFixture(pages, graphics = false) {
   const escape = (t) => t.replace(/[\\()]/g, "\\$&");
-  const stream =
-    lines
-      .map(
-        ([text, y]) =>
-          `BT /F1 11 Tf 72 ${792 - y - 9} Td (${escape(text)}) Tj ET`,
-      )
-      .join("\n") + (graphics ? "\n0.5 g 72 400 200 200 re f" : "");
+  const streams = pages.map(
+    (lines) =>
+      lines
+        .map(
+          ([text, y]) =>
+            `BT /F1 11 Tf 72 ${792 - y - 9} Td (${escape(text)}) Tj ET`,
+        )
+        .join("\n") + (graphics ? "\n0.5 g 72 400 200 200 re f" : ""),
+  );
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    `<< /Type /Pages /Kids [${pages.map((_, i) => `${4 + i * 2} 0 R`).join(" ")}] /Count ${pages.length} >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    ...streams.flatMap((stream, i) => [
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`,
+      `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    ]),
   ];
   let body = "%PDF-1.4\n",
     offsets = [0];

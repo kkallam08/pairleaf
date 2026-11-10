@@ -7,6 +7,13 @@ import {
   type PDFDocumentLoadingTask,
 } from "./pdf";
 import { analyze } from "./parser";
+import { analyzeOcr } from "./ocr-layout";
+import { readScannedPages } from "./ocr";
+import {
+  detectAnswerRange,
+  validateAnswerRange,
+  type AnswerRange,
+} from "./single";
 import { matchDocuments } from "./matching";
 import { CanvasPool } from "./rendering";
 import type { Match, PageText, Solution } from "./model";
@@ -41,6 +48,12 @@ const qscroll = el("question-scroll"),
   sscroll = el("solution-scroll");
 let sourceSolutions: Solution[] = [];
 let fingerprint = "";
+let singlePages: PageText[] = [];
+let singleName = "";
+let singleFingerprint = "";
+let answerRange: AnswerRange | undefined;
+let ocrController: AbortController | undefined;
+let rangePreviewPool: CanvasPool | undefined;
 let aiController: AbortController | undefined;
 let reviewMatch: Match | undefined;
 let previewPool: CanvasPool | undefined;
@@ -69,6 +82,16 @@ function closeSolution(restoreFocus = false) {
 }
 function reset() {
   revision++;
+  ocrController?.abort();
+  ocrController = undefined;
+  setOcrBusy(false);
+  singlePages = [];
+  singleName = "";
+  singleFingerprint = "";
+  answerRange = undefined;
+  clearRangePreview();
+  el<HTMLDialogElement>("answer-range").close();
+  el("range-open").hidden = true;
   aiController?.abort();
   aiController = undefined;
   previewPool?.destroy();
@@ -108,16 +131,18 @@ function reset() {
   el<HTMLButtonElement>("pair").disabled = false;
   el("cancel").hidden = true;
   el<HTMLInputElement>("questions-file").disabled = false;
-  el<HTMLInputElement>("solutions-file").disabled = false;
+  updateMode();
 }
 async function pair(event: SubmitEvent) {
   event.preventDefault();
   const qfile = el<HTMLInputElement>("questions-file").files?.[0],
     sfile = el<HTMLInputElement>("solutions-file").files?.[0];
-  if (!qfile || !sfile) return;
+  const single = isSingleMode();
+  if (!qfile || (!single && !sfile)) return;
   reset();
   const token = revision;
   el<HTMLButtonElement>("pair").disabled = true;
+  setModeDisabled(true);
   el("cancel").hidden = false;
   el("progress-wrap").hidden = false;
   el<HTMLInputElement>("questions-file").disabled = true;
@@ -130,18 +155,21 @@ async function pair(event: SubmitEvent) {
   };
   try {
     update("Opening PDFs…", 0);
-    if (!/\.pdf$/i.test(qfile.name) || !/\.pdf$/i.test(sfile.name))
-      throw new Error("Choose two PDF files.");
+    if (
+      !/\.pdf$/i.test(qfile.name) ||
+      (!single && !/\.pdf$/i.test(sfile!.name))
+    )
+      throw new Error(single ? "Choose a PDF file." : "Choose two PDF files.");
     const [qb, sb] = await Promise.all([
       qfile.arrayBuffer(),
-      sfile.arrayBuffer(),
+      single ? Promise.resolve(undefined) : sfile!.arrayBuffer(),
     ]);
     if (cancelled()) return;
-    fingerprint = await pairFingerprint(qb, sb);
+    fingerprint = await pairFingerprint(qb, sb ?? qb);
     if (cancelled()) return;
     const qt = openPdf(new Uint8Array(qb)),
-      st = openPdf(new Uint8Array(sb));
-    tasks = [qt, st];
+      st = single ? qt : openPdf(new Uint8Array(sb!));
+    tasks = single ? [qt] : [qt, st];
     for (const task of tasks)
       task.onPassword = () => {
         void task.destroy();
@@ -149,7 +177,7 @@ async function pair(event: SubmitEvent) {
     const docs = await Promise.all([qt.promise, st.promise]);
     if (cancelled()) return;
     [qdoc, sdoc] = docs;
-    const total = qdoc.numPages + sdoc.numPages;
+    const total = qdoc.numPages + (single ? 0 : sdoc.numPages);
     qpages = await extractPages(
       qdoc,
       (n) =>
@@ -159,6 +187,18 @@ async function pair(event: SubmitEvent) {
         ),
       cancelled,
     );
+    if (single) {
+      if (qpages.length < 2)
+        throw new Error(
+          "Choose a PDF with questions and answers on separate pages.",
+        );
+      singlePages = qpages;
+      singleName = qfile.name;
+      singleFingerprint = fingerprint;
+      update("Choose answer pages", 100);
+      openAnswerRange();
+      return;
+    }
     const spages = await extractPages(
       sdoc,
       (n) =>
@@ -169,61 +209,7 @@ async function pair(event: SubmitEvent) {
       cancelled,
     );
     update("Matching questions…", 95);
-    const qa = analyze(qpages, "questions"),
-      sa = analyze(spages, "solutions");
-    if (!qa.headings.length || !sa.headings.length)
-      throw new Error(
-        [...qa.warnings, ...sa.warnings].find((w) =>
-          w.startsWith("No supported"),
-        )!,
-      );
-    matches = matchDocuments(qa.headings, sa.solutions);
-    sourceSolutions = sa.solutions;
-    try {
-      matches = restoreChoices(
-        matches,
-        sourceSolutions,
-        JSON.parse(localStorage.getItem(fingerprint) ?? "null"),
-      );
-    } catch {
-      /* An unavailable or malformed local cache does not block reading. */
-    }
-    if (cancelled()) return;
-    const ready = matches.filter((m) => m.status === "matched").length;
-    el("match-count").textContent =
-      `${ready} matched / ${matches.length} questions`;
-    const counts = ["missing", "ambiguous", "unsafe"]
-      .map(
-        (status) =>
-          `${matches.filter((m) => m.status === status).length} ${status === "unsafe" ? "uncertain boundaries" : status}`,
-      )
-      .join(" · ");
-    const extra = sa.headings.filter(
-      (s) => !qa.headings.some((q) => q.id === s.id),
-    );
-    el("report-summary").textContent =
-      `${ready} matched. ${counts.replaceAll(" · ", ", ")}.`;
-    el("report-scope").textContent =
-      qa.warnings.join(" ") +
-      ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses numbers in single-column PDFs. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
-    el("question-name").textContent = qfile.name;
-    el("question-name").title = qfile.name;
-    el("solution-name").textContent = sfile.name;
-    el("solution-name").title = sfile.name;
-    el("page-total").textContent = `/ ${qpages.length}`;
-    el<HTMLInputElement>("page-number").max = String(qpages.length);
-    el<HTMLInputElement>("problem").value = "";
-    zoom = 1;
-    el<HTMLSelectElement>("zoom").value = "1";
-    el("setup").hidden = true;
-    el("reader").hidden = false;
-    el("workspace-name").textContent = "Reading desk";
-    el<HTMLButtonElement>("rail-find").disabled = false;
-    el<HTMLButtonElement>("rail-review").disabled = false;
-    el("rail-files").removeAttribute("aria-current");
-    renderQuestions();
-    goTo(matches[0].questions[0].page, matches[0].questions[0].y);
-    renderReport();
+    finishPair(qpages, spages, qfile.name, sfile!.name, fingerprint);
     update("Pair ready", 100);
   } catch (error) {
     if (cancelled()) return;
@@ -240,10 +226,97 @@ async function pair(event: SubmitEvent) {
       el<HTMLButtonElement>("pair").disabled = false;
       el("cancel").hidden = true;
       el<HTMLInputElement>("questions-file").disabled = false;
-      el<HTMLInputElement>("solutions-file").disabled = false;
+      updateMode();
     }
   }
 }
+function finishPair(
+  questionPages: PageText[],
+  solutionPages: PageText[],
+  questionName: string,
+  solutionName: string,
+  choiceKey: string,
+  jumpToFirst = true,
+) {
+  const anchor = position();
+  const isOcr = Boolean(questionPages[0]?.ocrColumns);
+  const qa = isOcr
+      ? analyzeOcr(questionPages, "questions")
+      : analyze(questionPages, "questions"),
+    sa = isOcr
+      ? analyzeOcr(solutionPages, "solutions")
+      : analyze(solutionPages, "solutions");
+  if (!qa.headings.length || !sa.headings.length)
+    throw new Error(
+      [...qa.warnings, ...sa.warnings].find((w) =>
+        w.startsWith("No supported"),
+      )!,
+    );
+  qpages = questionPages;
+  fingerprint = choiceKey;
+  matches = matchDocuments(qa.headings, sa.solutions);
+  if (isOcr)
+    for (const match of matches) {
+      if (match.status === "matched") {
+        match.status = "suggested";
+        match.reason =
+          "OCR source proposal. Preview the complete answer before confirming; recognition can miss labels or crop boundaries.";
+      }
+    }
+  sourceSolutions = sa.solutions;
+  try {
+    matches = restoreChoices(
+      matches,
+      sourceSolutions,
+      JSON.parse(localStorage.getItem(fingerprint) ?? "null"),
+    );
+  } catch {
+    /* An unavailable or malformed local cache does not block reading. */
+  }
+  const ready = matches.filter((m) => m.status === "matched").length;
+  el("match-count").textContent =
+    `${ready} matched / ${matches.length} questions`;
+  const counts = ["suggested", "missing", "ambiguous", "unsafe"]
+    .map(
+      (status) =>
+        `${matches.filter((m) => m.status === status).length} ${status === "unsafe" ? "uncertain boundaries" : status}`,
+    )
+    .join(" · ");
+  const extra = sa.headings.filter(
+    (s) => !qa.headings.some((q) => q.id === s.id),
+  );
+  el("report-summary").textContent =
+    `${ready} matched. ${counts.replaceAll(" · ", ", ")}.`;
+  el("report-scope").textContent =
+    qa.warnings.join(" ") +
+    ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses exercise context and numbers. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
+  el("question-name").textContent = questionName;
+  el("question-name").title = questionName;
+  el("solution-name").textContent = solutionName;
+  el("solution-name").title = solutionName;
+  el("page-total").textContent = `/ ${qpages.at(-1)!.page}`;
+  el<HTMLInputElement>("page-number").min = String(qpages[0].page);
+  el<HTMLInputElement>("page-number").max = String(qpages.at(-1)!.page);
+  el<HTMLInputElement>("problem").value = "";
+  if (jumpToFirst) {
+    zoom = 1;
+    el<HTMLSelectElement>("zoom").value = "1";
+  }
+  el("setup").hidden = true;
+  el("reader").hidden = false;
+  el("workspace-name").textContent = "Reading desk";
+  el<HTMLButtonElement>("rail-find").disabled = false;
+  el<HTMLButtonElement>("rail-review").disabled = false;
+  el("rail-files").removeAttribute("aria-current");
+  renderQuestions();
+  if (jumpToFirst)
+    goTo(matches[0].questions[0].page, matches[0].questions[0].y);
+  else if (anchor.page > qpages.at(-1)!.page || anchor.page < qpages[0].page)
+    goTo(qpages[0].page);
+  renderReport();
+  closeSolution();
+}
+
 function position() {
   const blocks = [...el("pages").children] as HTMLElement[];
   const block =
@@ -343,7 +416,10 @@ function renderQuestions() {
   if (target) qscroll.scrollTop = target.offsetTop + anchor.offset * scale;
 }
 function goTo(page: number, y = 0) {
-  const n = Math.max(1, Math.min(qpages.length, Math.round(page) || 1));
+  const n = Math.max(
+    qpages[0]?.page ?? 1,
+    Math.min(qpages.at(-1)?.page ?? 1, Math.round(page) || 1),
+  );
   const target = el("pages").querySelector<HTMLElement>(`[data-page="${n}"]`);
   if (target)
     qscroll.scrollTop = target.offsetTop + Math.max(0, y * scale - 70);
@@ -723,6 +799,203 @@ finder.onkeydown = (event) => {
       matches.find((m) => m.id === finder.value.trim()) ??
       finderMatches[0];
     if (match) selectQuestion(match);
+  }
+};
+function isSingleMode() {
+  return (
+    document.querySelector<HTMLInputElement>('input[name="mode"]:checked')
+      ?.value === "single"
+  );
+}
+function setModeDisabled(disabled: boolean) {
+  document
+    .querySelectorAll<HTMLInputElement>('input[name="mode"]')
+    .forEach((input) => {
+      input.disabled = disabled;
+    });
+}
+function updateMode() {
+  const single = isSingleMode();
+  setModeDisabled(false);
+  el("solutions-drop").hidden = single;
+  el<HTMLInputElement>("solutions-file").required = !single;
+  el<HTMLInputElement>("solutions-file").disabled = single;
+  el("file-grid").classList.toggle("single-file", single);
+  el("questions-drop").querySelector(".file-heading span")!.textContent = single
+    ? "Textbook PDF"
+    : "Questions PDF";
+  el("questions-file").setAttribute(
+    "aria-label",
+    single ? "Textbook PDF" : "Questions PDF",
+  );
+  el("pair").textContent = single ? "Open PDF" : "Pair PDFs";
+}
+document
+  .querySelectorAll<HTMLInputElement>('input[name="mode"]')
+  .forEach((input) => {
+    input.onchange = () => {
+      updateMode();
+      el("error").hidden = true;
+    };
+  });
+function clearRangePreview() {
+  rangePreviewPool?.destroy();
+  rangePreviewPool = undefined;
+  el("range-preview").replaceChildren();
+  el("range-preview").hidden = true;
+}
+function openAnswerRange() {
+  clearRangePreview();
+  const proposed = answerRange ?? detectAnswerRange(singlePages);
+  if (!answerRange) {
+    el<HTMLInputElement>("ocr-enabled").checked = false;
+    el("ocr-options").hidden = true;
+    el<HTMLInputElement>("ocr-question-start").value = "1";
+    el<HTMLInputElement>("ocr-question-end").value = String(
+      Math.min(10, (proposed?.start ?? singlePages.length) - 1),
+    );
+  }
+  el("range-detection").textContent = answerRange
+    ? `${singleName} · ${singlePages.length} pages`
+    : proposed
+      ? `Suggested answer section · PDF pages ${proposed.start}–${proposed.end}`
+      : `No answer section found. Choose its page range in this ${singlePages.length}-page PDF.`;
+  for (const side of ["start", "end"] as const) {
+    const input = el<HTMLInputElement>(`range-${side}`);
+    input.max = String(singlePages.length);
+    input.value = proposed ? String(proposed[side]) : "";
+  }
+  el("range-error").hidden = true;
+  el<HTMLDialogElement>("answer-range").showModal();
+}
+function cancelRange() {
+  ocrController?.abort();
+  el<HTMLDialogElement>("answer-range").close();
+  if (!answerRange) reset();
+}
+el("range-open").onclick = openAnswerRange;
+el("range-close").onclick = cancelRange;
+el("range-cancel").onclick = cancelRange;
+el("answer-range").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelRange();
+});
+el("answer-range").addEventListener("close", clearRangePreview);
+for (const side of ["start", "end"]) {
+  el(`range-${side}`).oninput = () => {
+    clearRangePreview();
+    el("range-error").hidden = true;
+  };
+  el(`range-preview-${side}`).onclick = () => {
+    clearRangePreview();
+    const n = Number(el<HTMLInputElement>(`range-${side}`).value);
+    if (!Number.isInteger(n) || n < 1 || n > singlePages.length || !sdoc)
+      return;
+    const page = singlePages[n - 1],
+      container = el("range-preview");
+    container.hidden = false;
+    const label = document.createElement("p");
+    label.textContent = `PDF page ${n}`;
+    const canvas = document.createElement("div");
+    container.append(label, canvas);
+    rangePreviewPool = new CanvasPool(container);
+    rangePreviewPool.add(
+      canvas,
+      sdoc,
+      { page: n, x: 0, y: 0, width: page.width, height: page.height },
+      Math.max(0.3, (container.clientWidth - 24) / page.width),
+    );
+  };
+}
+function setOcrBusy(busy: boolean) {
+  el<HTMLButtonElement>("range-apply").disabled = busy;
+  el("ocr-progress").hidden = !busy;
+  for (const input of el("range-form").querySelectorAll<
+    HTMLInputElement | HTMLSelectElement
+  >("input, select"))
+    input.disabled = busy;
+}
+el("ocr-enabled").onchange = () => {
+  el("ocr-options").hidden = !el<HTMLInputElement>("ocr-enabled").checked;
+};
+el<HTMLFormElement>("range-form").onsubmit = async (event) => {
+  event.preventDefault();
+  const range = {
+    start: Number(el<HTMLInputElement>("range-start").value),
+    end: Number(el<HTMLInputElement>("range-end").value),
+  };
+  const token = revision;
+  const controller = new AbortController();
+  ocrController = controller;
+  try {
+    const invalid = validateAnswerRange(range, singlePages.length);
+    if (invalid) throw new Error(invalid);
+    let questions = singlePages.slice(0, range.start - 1);
+    let solutions = singlePages.slice(range.start - 1, range.end);
+    let key = `${singleFingerprint}:single:${range.start}-${range.end}`;
+    if (el<HTMLInputElement>("ocr-enabled").checked) {
+      const first = Number(el<HTMLInputElement>("ocr-question-start").value);
+      const last = Number(el<HTMLInputElement>("ocr-question-end").value);
+      if (
+        !Number.isInteger(first) ||
+        !Number.isInteger(last) ||
+        first < 1 ||
+        last < first ||
+        last >= range.start
+      )
+        throw new Error("Choose question pages before the first answer page.");
+      const qc = Number(el<HTMLSelectElement>("ocr-question-columns").value);
+      const sc = Number(el<HTMLSelectElement>("ocr-answer-columns").value);
+      setOcrBusy(true);
+      const progress = (message: string) => {
+        el("ocr-progress").textContent = message;
+      };
+      progress("Starting local OCR…");
+      questions = await readScannedPages(
+        qdoc!,
+        Array.from({ length: last - first + 1 }, (_, i) => first + i),
+        qc,
+        controller.signal,
+        progress,
+      );
+      solutions = await readScannedPages(
+        sdoc!,
+        Array.from(
+          { length: range.end - range.start + 1 },
+          (_, i) => range.start + i,
+        ),
+        sc,
+        controller.signal,
+        progress,
+      );
+      key += `:ocr-v1:${first}-${last}:${qc}-${sc}`;
+    }
+    if (token !== revision || controller.signal.aborted) return;
+    finishPair(
+      questions,
+      solutions,
+      singleName,
+      `${singleName} · pages ${range.start}–${range.end}`,
+      key,
+      !answerRange,
+    );
+    answerRange = range;
+    el("range-open").hidden = false;
+    el("range-open").textContent = `Answer pages ${range.start}–${range.end}`;
+    el("ai-status").hidden = true;
+    el<HTMLDialogElement>("answer-range").close();
+  } catch (error) {
+    if (token !== revision || controller.signal.aborted) return;
+    el("range-error").textContent =
+      error instanceof Error
+        ? error.message
+        : "Could not read this range. Choose different answer pages.";
+    el("range-error").hidden = false;
+  } finally {
+    if (token === revision && ocrController === controller) {
+      ocrController = undefined;
+      setOcrBusy(false);
+    }
   }
 };
 function updateFiles() {

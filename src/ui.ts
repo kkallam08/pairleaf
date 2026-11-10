@@ -37,16 +37,16 @@ export const markup = `
       <form id="pair-form">
         <fieldset class="mode-choice"><legend class="sr-only">Document arrangement</legend>
           <label class="mode-option"><input type="radio" name="mode" value="separate" checked><span>Separate PDFs</span></label>
-          <label class="mode-option pending"><input type="radio" name="mode" value="single" disabled aria-describedby="single-mode-note"><span>Answers in this PDF<small id="single-mode-note">Coming in the matching update</small></span></label>
+          <label class="mode-option"><input type="radio" name="mode" value="single"><span>Answers in this PDF</span></label>
         </fieldset>
-        <div class="file-grid">${fileField("questions", "Questions PDF")}${fileField("solutions", "Solutions PDF")}</div>
+        <div class="file-grid" id="file-grid">${fileField("questions", "Questions PDF")}${fileField("solutions", "Solutions PDF")}</div>
         <div class="pair-actions"><p class="quiet">Numbered questions, such as <strong>1. or 1.1.1</strong>.</p><button id="cancel" type="button" hidden>Cancel</button><button id="pair" class="primary" type="submit">Pair PDFs</button></div>
       </form>
       <div id="progress-wrap" hidden><progress id="progress" max="100" value="0"></progress><p id="progress-text" role="status" aria-live="polite"></p></div>
       <p id="error" role="alert" hidden></p>
     </section>
     <section id="reader" hidden aria-label="Paired PDF reader">
-      <div class="pair-bar"><strong id="match-count"></strong><button id="ai-open" class="text-button">AI matching</button><button id="report-open" class="text-button">Review matches</button><button id="replace">Change PDFs</button></div>
+      <div class="pair-bar"><strong id="match-count"></strong><button id="range-open" class="text-button" hidden>Answer pages</button><button id="ai-open" class="text-button">AI matching</button><button id="report-open" class="text-button">Review matches</button><button id="replace">Change PDFs</button></div>
       <p id="ai-status" class="ai-status" role="status" hidden></p><div class="reading-grid">
         <section class="question-column" aria-label="Questions">
           <div class="document-tab"><span class="tab-mark" aria-hidden="true"></span><strong>Questions</strong><span id="question-name"></span></div>
@@ -65,4 +65,24 @@ export const markup = `
     </section>
   </main>
 </div>
+<dialog id="answer-range" aria-labelledby="range-title">
+  <div class="dialog-heading"><h2 id="range-title">Answer pages</h2><button id="range-close" aria-label="Close answer pages">×</button></div>
+  <p id="range-detection" class="quiet"></p>
+  <form id="range-form">
+    <div class="range-fields"><label>First page<input id="range-start" type="number" min="2" step="1" required></label><label>Last page<input id="range-end" type="number" min="2" step="1" required></label></div>
+    <p class="quiet">Use PDF page numbers. Questions are read from the pages before this range.</p>
+    <label class="ocr-toggle"><input id="ocr-enabled" type="checkbox"> Read scanned pages with OCR</label>
+    <div id="ocr-options" hidden>
+        <p class="quiet">For printed exercises with blue question numbers. Include the exercise heading. Processing stays on this device.</p>
+      <div class="range-fields"><label>Questions from page<input id="ocr-question-start" type="number" min="1" step="1" value="1"></label><label>Through page<input id="ocr-question-end" type="number" min="1" step="1" value="1"></label></div>
+      <div class="range-fields"><label>Question columns<select id="ocr-question-columns"><option value="1">One</option><option value="2">Two</option></select></label><label>Answer columns<select id="ocr-answer-columns"><option value="2">Two</option><option value="1">One</option></select></label></div>
+      <p class="quiet">Start with a few exercise pages and their answer pages. OCR matches need confirmation.</p>
+    </div>
+    <p id="ocr-progress" role="status" hidden></p>
+    <div class="range-previews"><button id="range-preview-start" type="button">Preview first page</button><button id="range-preview-end" type="button">Preview last page</button></div>
+    <div id="range-preview" tabindex="0" aria-label="Page preview" hidden></div>
+    <p id="range-error" role="alert" hidden></p>
+    <div class="ai-actions"><button id="range-cancel" type="button">Cancel</button><button id="range-apply" type="submit" class="primary">Use pages</button></div>
+  </form>
+</dialog>
 <dialog id="ai-setup" aria-labelledby="ai-title"><div class="dialog-heading"><h2 id="ai-title">AI matching</h2><button id="ai-close" aria-label="Close AI setup">×</button></div><p>Check existing matches and find possible solutions for unresolved questions.</p><p class="quiet">Selected question and solution text will be sent to OpenAI. Answers stay hidden until you preview them.</p><label class="helper-code">Helper connection code<input id="helper-code" type="password" autocomplete="off"></label><p class="quiet">Start the helper with <code>npm run ai</code> in the Pairleaf folder, then paste its connection code here.</p><div class="ai-actions"><button id="ai-cancel" hidden>Stop check</button><button id="ai-run" class="primary">Check matches</button></div><p id="ai-progress" role="status"></p></dialog><dialog id="match-review" aria-labelledby="review-title"><div class="dialog-heading"><h2 id="review-title">Review solution</h2><button id="review-close" aria-label="Close solution review">×</button></div><p id="review-evidence"></p><label class="helper-code">Solution source<select id="review-source"></select></label><div class="ai-actions"><button id="review-preview">Preview answer</button><button id="review-confirm" class="primary">Confirm choice</button></div><div id="review-preview-pages" tabindex="0" aria-label="Answer preview" hidden></div></dialog><dialog id="report" aria-labelledby="report-title"><div class="dialog-heading"><h2 id="report-title">Review matches</h2><button id="report-close" aria-label="Close matching report">${close}</button></div><p id="report-summary"></p><div class="report-tools"><label>Show <select id="report-filter"><option value="issues">Needs attention</option><option value="all">All questions</option></select></label><span>Answers hidden</span></div><div id="report-list" tabindex="0" aria-label="Match results"></div><details class="report-details"><summary>Matching details</summary><p id="report-scope" class="quiet"></p></details></dialog>`;

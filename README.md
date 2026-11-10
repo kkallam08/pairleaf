@@ -1,6 +1,6 @@
 # Pairleaf
 
-Read a question PDF and reveal its existing solution from a second PDF beside it. Matching runs locally by default. Optional AI compares question and solution excerpts when numbering or wording differs, and checks existing assignments for contradictions.
+Read questions from a textbook or PDF pair and reveal their existing solutions beside them. Matching runs locally by default. Optional AI compares question and solution excerpts when numbering or wording differs, and checks existing assignments for contradictions.
 
 ## Install or update
 
@@ -9,7 +9,33 @@ Read a question PDF and reveal its existing solution from a second PDF beside it
 3. Open a new Pairleaf tab from Chrome's Extensions menu.
 4. Select or drop the **Questions PDF** and **Solutions PDF**, then click **Pair PDFs**.
 
-The build is included locally. `release/Pairleaf-0.1.0.zip` is the portable extension; extract it before loading. Keep the installed folder in place. Local matching and reading need no helper, key, or internet connection. **Answers in this PDF** remains disabled until the single-PDF engine is implemented.
+The build is included locally. `release/Pairleaf-0.1.0.zip` is the portable extension; extract it before loading. Keep the installed folder in place. Local matching and reading need no helper, key, or internet connection. Choose **Answers in this PDF** for a textbook with an answer section.
+
+## Use one PDF
+
+Select **Answers in this PDF**, choose your **Textbook PDF**, and click **Open PDF**. Pairleaf looks for an answer-section heading and suggests its first and last PDF pages. Confirm or correct the numbers, optionally preview either boundary page, then click **Use pages**. If detection finds no heading, enter the range yourself. Use actual PDF page numbers rather than printed book numbers.
+
+The reader indexes questions before the answer section and takes solutions only from the selected range. Repeated exercise labels are distinguished by chapter context. **Answer pages** reopens the editor while reading. Applying a correction rebuilds matches; cancelling keeps the current reader. Saved match choices are scoped to the file and selected range.
+
+The text profile supports one contiguous answer section on separate pages in clean, selectable-text, single-column PDFs. Scanned books can use the limited OCR profile below. Full PDF storage and automatic reopening are the next planned local-library step.
+
+## Try the Haese textbook with local OCR
+
+Reload the extension and open a new Pairleaf tab. Choose **Answers in this PDF** and the supplied _Mathematics - Core Topics HL 1 - Haese 2019.pdf_. Click **Open PDF**, then enter:
+
+| Setting                            | Value         |
+| ---------------------------------- | ------------- |
+| Answer pages, first / last         | **485 / 486** |
+| Read scanned pages with OCR        | **Checked**   |
+| Questions from page / through page | **22 / 27**   |
+| Question columns                   | **One**       |
+| Answer columns                     | **Two**       |
+
+Click **Use pages**. These are PDF page numbers, one above the printed numbers in this book. The checked range contains 19 questions in Exercise 1A and five in 1B. Open **Review matches**, use **Review solution → Preview answer**, then **Confirm choice** after checking the source. OCR proposals require confirmation even when the numbers agree. The six-part graph answer for 1B/1 appears in two original source regions.
+
+Recognition runs entirely on the device with bundled Tesseract.js and English language data. It needs no terminal, connection code, API key, or credits. Progress shows the current page; **Cancel** stops recognition and preserves an already-open reader. The checked eight-page batch took about 14–15 seconds on this machine; other devices and documents will differ. Confirmed choices restore when the same file, ranges, and column settings are processed again. OCR output itself is not yet saved across reloads.
+
+This first profile expects upright printed English exercises with headings such as **Exercise 1A**, blue/cyan integer question numbers, and one or two equal-width columns. Include the exercise heading and all answer continuation pages. A missing label can produce an incomplete or overlong crop; detected numbering gaps block direct matching. Formulas and graphs are shown as original PDF images, not reconstructed from OCR text. Review sets, black labels, uneven columns, handwriting, and full-book coverage remain unverified or unsupported. Automatic answer-section detection still relies on selectable text; for this scan, enter the range manually. Start with the tested range above rather than all 549 pages.
 
 ## Use AI matching
 
@@ -46,7 +72,7 @@ The personal build supports upright, selectable-text, single-column PDFs with co
 
 For course notes with headings like **Section 1.1 Problems**, the original profile indexes those lists rather than definitions, examples, prose references, and contents entries. The parser uses conventional margins and text geometry to bound source regions. Multiple numbered columns, image-only continuations, and boundaries spanning more than 12 pages require source review. Detection cannot prove completeness on an arbitrary PDF.
 
-Single-PDF textbooks, scans/OCR, handwriting, rotated or password-protected PDFs, and visual recognition of formulas or diagrams remain future work. Diagrams are preserved in original source crops, but the AI receives only extracted text. It can miss a correspondence or suggest an incorrect one. The small checked examples do not establish broad cross-subject accuracy or the planned review-burden target. See [RESULTS.md](RESULTS.md).
+Scan support is limited to the OCR profile above. Handwriting, rotated or password-protected PDFs, and semantic recognition of formulas or diagrams remain future work. Diagrams are preserved in original source crops, but optional cloud AI receives only extracted text, which can be especially inaccurate after OCR. It can miss a correspondence or suggest an incorrect one. The small checked examples do not establish broad cross-subject accuracy or the planned review-burden target. See [RESULTS.md](RESULTS.md).
 
 Pages render near the viewport, with bounded concurrent jobs and release of distant canvases. Controls and reports are keyboard accessible. PDF text selection, active links, printing, and screen-reader access to the full PDF text are not implemented. The original documents remain unchanged.
 
@@ -60,9 +86,11 @@ npm.cmd run check
 npm.cmd run test:helper
 npm.cmd run test:interface
 npm.cmd run test:ai-browser
+npm.cmd run test:single
+npm.cmd run test:ocr
 ```
 
-`check` runs unit tests, TypeScript checking, and the production build, including local PDF.js fonts, worker, CMaps, and WASM assets. Reload the extension and open a new reader tab after rebuilding. `npm.cmd run dev` serves the interface at `http://127.0.0.1:5181`; the packaged extension is the supported runtime.
+`check` runs unit tests, TypeScript checking, and the production build, including local PDF.js and OCR workers, WASM, fonts, CMaps, and English data. Reload the extension and open a new reader tab after rebuilding. `npm.cmd run dev` serves the interface at `http://127.0.0.1:5181`; the packaged extension is the supported runtime. `test:ocr` expects the supplied Haese PDF in Downloads, or accepts its path as an argument. It runs offline and saves private source-crop evidence under `output/ocr/`.
 
 Browser tests use isolated Chrome profiles. `test:ai-browser` uses a fake model provider and the locally supplied M116 files; it makes no paid API requests. The full course-pair regression accepts paths to those specific validation documents:
 
@@ -81,8 +109,8 @@ npm.cmd run evaluate:m116 -- "C:\path\M116P7.pdf" "C:\path\M116P7sol.pdf"
 
 ## Code and permissions
 
-`src/parser.ts` detects and bounds sources; `src/matching.ts` joins identifiers; `src/ai.ts` ranks candidates, validates source choices, and restores corrections. `server/` implements the authenticated loopback helper, provider call, and usage ceiling. The reader and original-PDF rendering live in `src/main.ts`, `src/ui.ts`, `src/style.css`, and `src/rendering.ts`.
+`src/parser.ts` detects and bounds selectable-text sources; `src/ocr*.ts` handles local image recognition and scanned exercise layout. `src/matching.ts` joins identifiers; `src/ai.ts` ranks candidates, validates source choices, and restores corrections. `server/` implements the authenticated loopback helper, provider call, and usage ceiling. The reader and original-PDF rendering live in `src/main.ts`, `src/ui.ts`, `src/style.css`, and `src/rendering.ts`.
 
 The Manifest V3 package allows a loopback host and restricts connections to itself and the helper on `127.0.0.1:5182`. Only the Node helper contacts OpenAI. There are no content scripts or analytics. PDF scripts, annotations, and links are not executed by the canvas viewer. PDF.js licenses and assets are bundled; see `THIRD_PARTY_NOTICES.txt`.
 
-This is a personal/tester build. Public authentication, hosting, billing, and Web Store distribution remain in [PLAN.md](PLAN.md). No Git commits or pushes were performed.
+This is a personal/tester build. Public authentication, hosting, billing, and Web Store distribution remain in [PLAN.md](PLAN.md).

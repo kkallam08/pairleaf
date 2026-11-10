@@ -46,11 +46,12 @@ interface Marker {
   problems: boolean;
 }
 
-/** Narrow layout profile: single column, dotted identifiers in a consistent left label lane. */
+/** Single-column layout with numbered headings in a consistent left label lane. */
 export function analyze(
   pages: PageText[],
   role: "questions" | "solutions",
 ): Analysis {
+  const pagesByNumber = new Map(pages.map((page) => [page.page, page]));
   const dotted = pages.some((p) =>
     p.items.some((i) => isBody(p, i) && identifier.test(i.text.trim())),
   );
@@ -64,16 +65,22 @@ export function analyze(
   const candidates: { p: PageText; i: TextSpan; id: string }[] = [];
   const markers: Marker[] = [];
   let context = "";
+  let chapter = "";
   for (const p of pages) {
     if (isContents(p)) continue;
     for (const i of p.items) {
       const section = i.text
         .trim()
         .match(
-          /^(Chapter|Section|Exercise|Review set)\s+([\d]+[A-Za-z]?(?:\.[\d]+)*)(?:\s|$)/i,
+          /^(Chapter|Section|Exercise|Review set)\s+(\d+[A-Za-z]?(?:\.\d+)*|[A-Z])(?:\s|$)/i,
         );
-      if (!dotted && section)
-        context = `${section[1].toLowerCase()} ${section[2]}`;
+      if (!dotted && section) {
+        const label = `${section[1].toLowerCase()} ${section[2].toUpperCase()}`;
+        if (section[1].toLowerCase() === "chapter") {
+          if (chapter !== label) context = label;
+          chapter = label;
+        } else context = chapter ? `${chapter} / ${label}` : label;
+      }
       if (!isBody(p, i)) continue;
       const problemSection = i.text.match(
         /^(?:Section\s+)?(\d+(?:\.\d+)+)\s+(?:Problems|Exercises)\b/i,
@@ -83,7 +90,7 @@ export function analyze(
         /^(?:\d+(?:\.\d+)*\s|\d+(?:\.\d+)*$|Chapter\b|Appendix\b|Solutions to\b|References\b|Index$)/i.test(
           i.text.trim(),
         );
-      if (problemSection || structural)
+      if (problemSection || structural || (!dotted && section))
         markers.push({
           page: p.page,
           y: i.y,
@@ -163,7 +170,7 @@ export function analyze(
           const end =
             structure ??
             (next ? { page: next.page, top: next.top } : undefined);
-          const lastPage = end?.page ?? pages.length;
+          const lastPage = end?.page ?? pages.at(-1)!.page;
           const solution: Solution = { ...h, regions: [] };
           if (
             candidates.some(
@@ -182,7 +189,7 @@ export function analyze(
             return solution;
           }
           for (let n = h.page; n <= lastPage; n++) {
-            const p = pages[n - 1];
+            const p = pagesByNumber.get(n);
             if (!p) {
               solution.issue = "A page could not be read.";
               break;
@@ -226,8 +233,9 @@ export function analyze(
     heading.issue = block.issue;
     heading.text = block.regions
       .map((region) =>
-        pages[region.page - 1].items
-          .filter(
+        pagesByNumber
+          .get(region.page)!
+          .items.filter(
             (item) =>
               item.bottom > region.y && item.y < region.y + region.height,
           )

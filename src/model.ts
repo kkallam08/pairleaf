@@ -8,6 +8,10 @@ export interface TextSpan {
   width: number;
   height: number;
   font: string;
+  coloredLabel?: boolean;
+  confidence?: number;
+  line?: number;
+  boundaryTop?: number;
 }
 export interface PageText {
   page: number;
@@ -15,6 +19,13 @@ export interface PageText {
   height: number;
   items: TextSpan[];
   textlessGraphics?: boolean;
+  ocrColumns?: {
+    x: number;
+    width: number;
+    items: TextSpan[];
+    labelX?: number;
+    labelTolerance?: number;
+  }[];
 }
 export interface Heading {
   id: string;

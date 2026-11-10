@@ -899,6 +899,65 @@ dialog::backdrop {
   font-size: 13px;
   margin: 20px 0;
 }
+.file-grid.single-file {
+  grid-template-columns: minmax(0, 1fr);
+}
+.range-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.range-fields label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.range-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.range-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+#range-preview {
+  max-height: 40vh;
+  overflow: auto;
+  padding: 12px;
+  background: var(--desk);
+}
+#range-preview p {
+  font-size: 12px;
+}
+#range-error {
+  color: #8b303f;
+  font-size: 13px;
+}
+.ocr-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 16px 0;
+}
+#ocr-options .range-fields {
+  margin-bottom: 12px;
+}
+#ocr-options select {
+  padding: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: white;
+}
+#ocr-progress {
+  font-size: 13px;
+  color: var(--accent);
+}
 .helper-code input,
 .helper-code select {
   padding: 10px;

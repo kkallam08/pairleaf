@@ -1,8 +1,44 @@
 # Validation results
 
+## Local OCR — November 8, 2026
+
+Implemented a local scanned-exercise profile using bundled Tesseract.js, English data, original PDF rendering, blue margin-label detection, and a small digit-template bank learned from reliably recognized labels in the document. The parser uses exercise context, column order, visual whitespace boundaries, and horizontal splitting for answers sharing a row. OCR never rewrites the source formulas or diagrams. All proposed assignments require confirmation.
+
+The actual packaged extension was tested offline in Chrome against the supplied Haese textbook:
+
+| Measure                                             | Result                                  |
+| --------------------------------------------------- | --------------------------------------- |
+| PDF question pages                                  | 22–27, one column                       |
+| PDF answer pages                                    | 485–486, two columns                    |
+| Expected questions                                  | 19 in Exercise 1A; 5 in Exercise 1B     |
+| Detected questions / corresponding source proposals | 24 / 24                                 |
+| Automatic assignments                               | 0; all 24 require confirmation          |
+| Source regions                                      | 25; 1B/1 spans both columns of page 485 |
+| Recognition time, including worker startup          | About 14–15 seconds on this machine     |
+| Uncaught browser errors / HTTP(S) requests          | 0 / 0                                   |
+| Paid API usage                                      | None                                    |
+
+All 24 answers were captured from the actual rendered canvases and inspected against the source pages. The check includes fractions, superscripts, prose, all six graphs for 1B/1, all six graphs for 1B/2, and separate crops for same-row answers 1A/18 and 1A/19. Initial recognition omitted some labels and confused graph markings with numbers; margin geometry and matching printed digit shapes recovered those labels. A crop check also exposed fraction clipping and neighboring numerator pixels; whitespace boundaries now account for words extending above the question label.
+
+The offline browser check confirms the 24 expected identifiers, source-region counts, preview and confirmation, two-region reveal, cancellation during recognition, immediate retry, restoration of all 24 confirmed choices, and a 390px OCR dialog. Twenty-seven unit tests, TypeScript/build, the existing single-PDF/interface/mock-AI suites, and the original 236-question/12-reveal course-pair regression pass. Private evidence is in `output/ocr/`, including `probe.json`, setup screenshots, and the original-source canvas captures. Reproduce with `npm.cmd run test:ocr` after building.
+
+This is a checked two-exercise subset. The remaining chapters, review sets, automatic answer-section detection on scans, handwriting, black or differently colored labels, uneven columns, and general OCR reliability are unverified or unsupported. A numbering gap flags the preceding source as uncertain, but missed boundaries cannot always be detected. Mathematical OCR text is imperfect; optional cloud AI still receives text rather than source images. The review burden here is **100 confirmations per 100 questions**, above the planned target of at most 10. A 24/24 proposal result does not establish full-book accuracy.
+
+OCR runs again on reimport; only confirmed source choices persist. The next local-library step must store PDF bytes, ranges, column settings, recognized source regions, and choices.
+
+## Single-PDF mode — November 8, 2026
+
+Single-PDF import now detects a proposed answer section from standalone text headings, bounds it before a recognized index or reference section, and offers editable PDF page numbers. Boundary-page previews are explicit. The reader indexes the question pages preceding the selected range. Applying a corrected range rebuilds source matches, while cancellation retains the existing reader. Chapter/exercise context distinguishes repeated question numbers, and solution crops keep their original PDF page numbers.
+
+Twenty unit tests and the production build pass. The new offline `npm.cmd run test:single` Chrome check covers automatic detection, index exclusion, manual fallback, invalid ranges, range correction after import, cancellation, repeated exercise numbers across chapters, multi-page answer regions, mode switching, and 390px layout. Desktop and mobile preview screenshots were inspected. The existing interface suite, 236-question/12-reveal course-pair regression, and AI workflow checks also pass. AI tests use a fake provider and incur no API usage.
+
+At this text-only milestone, the supplied Haese PDF loaded all 549 pages but its hidden text provided no recognized answer-section heading; entering PDF pages 485–546 produced the unsupported-heading/OCR message. The later local OCR delivery above adds a checked subset of this book. The automated text-mode fixtures use invented selectable text, and broader real-textbook accuracy remains unmeasured.
+
+Single-PDF mode supports one contiguous answer range on separate pages. PDF files and the chosen range still need to be selected after reloading. Saved confirmed choices restore when the same file and range are selected. The local study library is the next planned implementation in [PLAN.md](PLAN.md). Evidence is local in ignored `output/single-pdf/`.
+
 ## AI-assisted matching — November 8, 2026
 
-The personal paired-PDF workflow is implemented: ordinary numbered headings and context, bounded source text, candidate ranking, optional OpenAI checks through a local authenticated helper, source suggestions, explicit preview, manual correction, and locally persisted confirmations. Single-PDF import and scanned-textbook recognition remain pending. No Git commits or pushes were performed.
+The personal paired-PDF workflow is implemented: ordinary numbered headings and context, bounded source text, candidate ranking, optional OpenAI checks through a local authenticated helper, source suggestions, explicit preview, manual correction, and locally persisted confirmations. Later deliveries above add clean-text single-PDF import and a limited local OCR profile.
 
 Validation passed after the final parser and matching changes:
 
@@ -14,10 +50,10 @@ Validation passed after the final parser and matching changes:
 
 Two small live evaluations used the saved key and the same provider adapter as the helper:
 
-| Evaluation | Source correspondence | Review behavior | Estimated usage cost |
-| --- | --- | --- | ---: |
-| Six invented cases across biology, geography, mathematics, and history | 6/6 expected selections, including two absent answers | Changed/uncertain choices require confirmation in the UI | $0.0002846 |
-| Extracted M116 question/solution text | 8/8 expected selections | All eight existing assignments supported; no review required | $0.0041246 |
+| Evaluation                                                             | Source correspondence                                 | Review behavior                                              | Estimated usage cost |
+| ---------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ | -------------------: |
+| Six invented cases across biology, geography, mathematics, and history | 6/6 expected selections, including two absent answers | Changed/uncertain choices require confirmation in the UI     |           $0.0002846 |
+| Extracted M116 question/solution text                                  | 8/8 expected selections                               | All eight existing assignments supported; no review required |           $0.0041246 |
 
 The M116 model calls took approximately 11.8 seconds in total, around 1.3–1.7 seconds per question. All eight source candidates were available to each call; the fifth-page answer to question 8 remained below the excerpt cap. This measures text correspondence, not a complete visual crop audit. Failed connection attempts retained conservative reservations, bringing the local ledger to **$0.0090589 of $10**. These are token-rate estimates rather than a provider billing receipt.
 
@@ -33,7 +69,7 @@ The new `npm run test:interface` suite also passed: file-picker keyboard focus, 
 
 An initial Chrome check caught a redundant resize redraw removing a reveal button during navigation. The observer now redraws only when the pane width changes; the rerun passed. PDFs remain canvas-rendered; keyboard-accessible controls do not add screen-reader access to PDF text. Small-screen full-page fits can require zooming.
 
-This earlier delivery changed the interface. The later AI delivery above adds manual confirmation/correction. Single-PDF matching remains unavailable and is not covered by these passing checks.
+This earlier delivery changed the interface. The later AI delivery above adds manual confirmation/correction. Single-PDF behavior is covered by the later delivery above.
 
 ## Original document validation
 

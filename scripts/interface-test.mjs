@@ -33,7 +33,7 @@ try {
   await page.screenshot({ path: path.join(out, "import-desktop.png") });
   await expect(
     page.getByRole("radio", { name: "Answers in this PDF" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await page.getByLabel("Questions PDF").focus();
   assert.equal(
     await page
@@ -44,7 +44,7 @@ try {
   await page.getByLabel("Questions PDF").press("Tab");
   await expect(page.getByLabel("Solutions PDF")).toBeFocused();
   checks.push(
-    "Keyboard file inputs have visible focus; future single-PDF mode is explicitly unavailable",
+    "Keyboard file inputs have visible focus; both document arrangements are available",
   );
 
   const questions = pdfFixture([

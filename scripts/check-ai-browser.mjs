@@ -1,6 +1,7 @@
 import { chromium, expect } from "@playwright/test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pdfFixture } from "../tests/pdf-fixture.mjs";
 import { createHelper } from "../server/http.mjs";
@@ -167,10 +168,10 @@ try {
   await page.getByRole("button", { name: "Change PDFs", exact: true }).click();
   await page
     .getByLabel("Questions PDF")
-    .setInputFiles("C:/Users/kushi/Downloads/M116P7.pdf");
+    .setInputFiles(path.join(os.homedir(), "Downloads", "M116P7.pdf"));
   await page
     .getByLabel("Solutions PDF")
-    .setInputFiles("C:/Users/kushi/Downloads/M116P7sol.pdf");
+    .setInputFiles(path.join(os.homedir(), "Downloads", "M116P7sol.pdf"));
   await page.getByRole("button", { name: "Pair PDFs", exact: true }).click();
   await expect(page.locator("#match-count")).toHaveText(
     "8 matched / 8 questions",
