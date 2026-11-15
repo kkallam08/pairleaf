@@ -66,8 +66,10 @@ try {
     "3.5.1",
     "4.3.1",
     "5.1.8",
+    "5.2.3",
     "6.4.1",
     "7.3.1",
+    "7.3.3",
     "8.4.6",
     "8.5.1",
   ];
@@ -150,7 +152,7 @@ try {
     });
   }
   checks.push(
-    "12 samples: exact source regions, question scroll preserved, other solution headings excluded",
+    `${samples.length} samples: exact source regions, question scroll preserved, other solution headings excluded`,
   );
   await page.getByLabel("Find problem").fill("3.1.2");
   await page.getByLabel("Find problem").press("Enter");
@@ -280,19 +282,39 @@ try {
   );
   await page.getByRole("button", { name: "Pair PDFs", exact: true }).click();
   await expect(page.locator("#match-count")).toHaveText(
-    "1 matched / 3 questions",
+    "1 matched / 4 questions",
     { timeout: 20000 },
   );
   await page
-    .getByRole("button", { name: "Review match for 1.1.2", exact: true })
+    .getByRole("button", { name: "Review match for 1.1.2 (1)", exact: true })
     .first()
     .click();
-  await expect(page.locator("#report-summary")).toContainText("1 ambiguous");
+  await expect(page.locator("#report-summary")).toContainText("2 ambiguous");
   await expect(page.locator("#report-summary")).toContainText("1 missing");
   assert.equal(await page.locator("#solution-pages canvas").count(), 0);
+  await page
+    .getByRole("button", { name: "Review solution for 1.1.2 (1)", exact: true })
+    .click();
+  await expect(page.locator("#review-confirm")).toBeEnabled();
+  await expect(page.locator("#review-preview-pages")).toBeHidden();
+  await page.locator("#review-source").selectOption({ index: 2 });
+  await page.locator("#review-preview").click();
+  await expect(
+    page.locator("#review-preview-pages [data-rendered=true]"),
+  ).toHaveCount(1);
+  await page.locator("#review-confirm").click();
+  await expect(page.locator("#match-count")).toHaveText(
+    "2 matched / 4 questions",
+  );
   await page.getByLabel("Close matching report", { exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Review match for 1.1.2 (2)",
+      exact: true,
+    }),
+  ).toBeVisible();
   checks.push(
-    "Synthetic duplicate/missing identifiers are visibly reported and cannot reveal an answer",
+    "Duplicate questions can be corrected independently without AI; other ambiguous/missing answers remain unresolved",
   );
   await page.getByRole("button", { name: "Change PDFs", exact: true }).click();
   await page.getByLabel("Questions PDF").setInputFiles(questionFile);

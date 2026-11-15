@@ -17,8 +17,6 @@ import {
   type PDFDocumentLoadingTask,
 } from "./pdf";
 import { analyze } from "./parser";
-import { analyzeOcr } from "./ocr-layout";
-import { readScannedPages } from "./ocr";
 import {
   detectAnswerRange,
   validateAnswerRange,
@@ -28,13 +26,11 @@ import { matchDocuments } from "./matching";
 import { CanvasPool } from "./rendering";
 import type { Match, PageText, Solution } from "./model";
 import {
-  applySuggestion,
-  checkQuestion,
   pairFingerprint,
-  rankCandidates,
+  splitForReview,
   restoreChoices,
   sourceKey,
-} from "./ai";
+} from "./review";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = markup + libraryMarkup;
@@ -62,9 +58,7 @@ let singlePages: PageText[] = [];
 let singleName = "";
 let singleFingerprint = "";
 let answerRange: AnswerRange | undefined;
-let ocrController: AbortController | undefined;
 let rangePreviewPool: CanvasPool | undefined;
-let aiController: AbortController | undefined;
 let reviewMatch: Match | undefined;
 let previewPool: CanvasPool | undefined;
 
@@ -95,9 +89,6 @@ function reset() {
   currentStudy = undefined;
   importedFiles = undefined;
   revision++;
-  ocrController?.abort();
-  ocrController = undefined;
-  setOcrBusy(false);
   singlePages = [];
   singleName = "";
   singleFingerprint = "";
@@ -105,18 +96,11 @@ function reset() {
   clearRangePreview();
   el<HTMLDialogElement>("answer-range").close();
   el("range-open").hidden = true;
-  aiController?.abort();
-  aiController = undefined;
   previewPool?.destroy();
   sourceSolutions = [];
   fingerprint = "";
   reviewMatch = undefined;
   el<HTMLDialogElement>("match-review").close();
-  el<HTMLDialogElement>("ai-setup").close();
-  el("ai-status").hidden = true;
-  el("ai-progress").textContent = "";
-  el<HTMLButtonElement>("ai-run").disabled = false;
-  el("ai-cancel").hidden = true;
   questionPool?.destroy();
   questionPool = undefined;
   closeSolution();
@@ -254,13 +238,8 @@ function finishPair(
   jumpToFirst = true,
 ) {
   const anchor = position();
-  const isOcr = Boolean(questionPages[0]?.ocrColumns);
-  const qa = isOcr
-      ? analyzeOcr(questionPages, "questions")
-      : analyze(questionPages, "questions"),
-    sa = isOcr
-      ? analyzeOcr(solutionPages, "solutions")
-      : analyze(solutionPages, "solutions");
+  const qa = analyze(questionPages, "questions"),
+    sa = analyze(solutionPages, "solutions");
   if (!qa.headings.length || !sa.headings.length)
     throw new Error(
       [...qa.warnings, ...sa.warnings].find((w) =>
@@ -269,15 +248,7 @@ function finishPair(
     );
   qpages = questionPages;
   fingerprint = choiceKey;
-  matches = matchDocuments(qa.headings, sa.solutions);
-  if (isOcr)
-    for (const match of matches) {
-      if (match.status === "matched") {
-        match.status = "suggested";
-        match.reason =
-          "OCR source proposal. Preview the complete answer before confirming; recognition can miss labels or crop boundaries.";
-      }
-    }
+  matches = splitForReview(matchDocuments(qa.headings, sa.solutions));
   sourceSolutions = sa.solutions;
   try {
     matches = restoreChoices(
@@ -297,7 +268,7 @@ function finishPair(
   );
   el("report-scope").textContent =
     qa.warnings.join(" ") +
-    ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses exercise context and numbers. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
+    ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses exercise context and numbers. Undetected questions are not included in the counts.`;
   mountReader(jumpToFirst, anchor);
 }
 function mountReader(jumpToFirst = true, anchor = position()) {
@@ -588,7 +559,7 @@ function openReview(match: Match) {
   el<HTMLButtonElement>("review-confirm").disabled = blocked;
   if (blocked)
     el("review-evidence").textContent +=
-      " Run AI matching to separate duplicate questions. Uncertain question boundaries must be checked in the source PDF.";
+      " This question has uncertain boundaries. Check the original PDF before using its answer.";
   el<HTMLDialogElement>("match-review").showModal();
 }
 el("review-source").onchange = clearPreview;
@@ -639,9 +610,8 @@ el("review-confirm").onclick = () => {
       : null;
     localStorage.setItem(fingerprint, JSON.stringify(choices));
   } catch {
-    el("ai-status").hidden = false;
-    el("ai-status").textContent =
-      "Choice applied for this session. Local storage could not save it.";
+    // The library saves choices independently and reports failures in its status.
+    // This legacy cache only restores choices on raw-PDF reimport.
   }
   el<HTMLDialogElement>("match-review").close();
   refreshMatches();
@@ -650,95 +620,6 @@ el("review-confirm").onclick = () => {
 el("review-close").onclick = () =>
   el<HTMLDialogElement>("match-review").close();
 el("match-review").addEventListener("close", clearPreview);
-el("ai-open").onclick = () => el<HTMLDialogElement>("ai-setup").showModal();
-el("ai-close").onclick = () => el<HTMLDialogElement>("ai-setup").close();
-el("ai-setup").addEventListener("close", () => aiController?.abort());
-el("ai-cancel").onclick = () => aiController?.abort();
-el("ai-run").onclick = async () => {
-  const code = el<HTMLInputElement>("helper-code").value.trim();
-  if (!code) {
-    el("ai-progress").textContent = "Enter the helper connection code.";
-    return;
-  }
-  const controller = new AbortController();
-  aiController = controller;
-  const token = revision;
-  el<HTMLButtonElement>("ai-run").disabled = true;
-  el("ai-cancel").hidden = false;
-  const results: Match[] = [];
-  const total = matches.reduce((sum, match) => sum + match.questions.length, 0);
-  let checked = 0,
-    skipped = 0,
-    usage = 0;
-  try {
-    for (const match of matches)
-      for (const [index, question] of match.questions.entries()) {
-        if (controller.signal.aborted)
-          throw new DOMException("Stopped", "AbortError");
-        const displayId =
-          match.questions.length > 1 ? `${match.id} (${index + 1})` : match.id;
-        const ranked = rankCandidates(question, sourceSolutions);
-        const candidates = [
-          ...new Map(
-            [
-              ...match.solutions.filter((s) => !s.issue && s.text?.trim()),
-              ...ranked,
-            ].map((s) => [sourceKey(s), s]),
-          ).values(),
-        ].slice(0, 12);
-        if (question.issue || !question.text?.trim() || !candidates.length) {
-          results.push({ ...match, id: displayId, questions: [question] });
-          skipped++;
-          continue;
-        }
-        el("ai-progress").textContent =
-          `Checking question ${checked + skipped + 1} of ${total}…`;
-        const result = await checkQuestion(
-          question,
-          candidates,
-          code,
-          controller.signal,
-        );
-        results.push(
-          applySuggestion(match, question, result, candidates, displayId),
-        );
-        usage = result.usedUSD;
-        checked++;
-      }
-    if (token !== revision || controller.signal.aborted) return;
-    try {
-      const choices = JSON.parse(localStorage.getItem(fingerprint) ?? "{}");
-      for (const result of results)
-        if (!result.confirmed) delete choices[sourceKey(result.questions[0])];
-      localStorage.setItem(fingerprint, JSON.stringify(choices));
-    } catch {
-      /* Results remain available in this session if local storage is unavailable. */
-    }
-    matches = results;
-    refreshMatches();
-    el("ai-status").hidden = false;
-    el("ai-status").textContent =
-      `AI checked ${checked} questions. ${skipped ? `${skipped} need source-boundary review. ` : ""}Helper usage $${usage.toFixed(4)} of $10.`;
-    aiController = undefined;
-    el<HTMLDialogElement>("ai-setup").close();
-    el<HTMLSelectElement>("report-filter").value = "issues";
-    renderReport();
-    el<HTMLDialogElement>("report").showModal();
-  } catch (error) {
-    if (token === revision)
-      el("ai-progress").textContent = controller.signal.aborted
-        ? "Check stopped. Previous matches kept."
-        : error instanceof Error
-          ? error.message
-          : "AI check failed. Try again.";
-  } finally {
-    if (token === revision) {
-      aiController = undefined;
-      el<HTMLButtonElement>("ai-run").disabled = false;
-      el("ai-cancel").hidden = true;
-    }
-  }
-};
 let finderIndex = -1;
 let finderMatches: Match[] = [];
 const finder = el<HTMLInputElement>("problem");
@@ -866,14 +747,6 @@ function clearRangePreview() {
 function openAnswerRange() {
   clearRangePreview();
   const proposed = answerRange ?? detectAnswerRange(singlePages);
-  if (!answerRange) {
-    el<HTMLInputElement>("ocr-enabled").checked = false;
-    el("ocr-options").hidden = true;
-    el<HTMLInputElement>("ocr-question-start").value = "1";
-    el<HTMLInputElement>("ocr-question-end").value = String(
-      Math.min(10, (proposed?.start ?? singlePages.length) - 1),
-    );
-  }
   el("range-detection").textContent = answerRange
     ? `${singleName} · ${singlePages.length} pages`
     : proposed
@@ -888,7 +761,6 @@ function openAnswerRange() {
   el<HTMLDialogElement>("answer-range").showModal();
 }
 function cancelRange() {
-  ocrController?.abort();
   el<HTMLDialogElement>("answer-range").close();
   if (!answerRange) reset();
 }
@@ -926,70 +798,18 @@ for (const side of ["start", "end"]) {
     );
   };
 }
-function setOcrBusy(busy: boolean) {
-  el<HTMLButtonElement>("range-apply").disabled = busy;
-  el("ocr-progress").hidden = !busy;
-  for (const input of el("range-form").querySelectorAll<
-    HTMLInputElement | HTMLSelectElement
-  >("input, select"))
-    input.disabled = busy;
-}
-el("ocr-enabled").onchange = () => {
-  el("ocr-options").hidden = !el<HTMLInputElement>("ocr-enabled").checked;
-};
-el<HTMLFormElement>("range-form").onsubmit = async (event) => {
+el<HTMLFormElement>("range-form").onsubmit = (event) => {
   event.preventDefault();
   const range = {
     start: Number(el<HTMLInputElement>("range-start").value),
     end: Number(el<HTMLInputElement>("range-end").value),
   };
-  const token = revision;
-  const controller = new AbortController();
-  ocrController = controller;
   try {
     const invalid = validateAnswerRange(range, singlePages.length);
     if (invalid) throw new Error(invalid);
-    let questions = singlePages.slice(0, range.start - 1);
-    let solutions = singlePages.slice(range.start - 1, range.end);
-    let key = `${singleFingerprint}:single:${range.start}-${range.end}`;
-    if (el<HTMLInputElement>("ocr-enabled").checked) {
-      const first = Number(el<HTMLInputElement>("ocr-question-start").value);
-      const last = Number(el<HTMLInputElement>("ocr-question-end").value);
-      if (
-        !Number.isInteger(first) ||
-        !Number.isInteger(last) ||
-        first < 1 ||
-        last < first ||
-        last >= range.start
-      )
-        throw new Error("Choose question pages before the first answer page.");
-      const qc = Number(el<HTMLSelectElement>("ocr-question-columns").value);
-      const sc = Number(el<HTMLSelectElement>("ocr-answer-columns").value);
-      setOcrBusy(true);
-      const progress = (message: string) => {
-        el("ocr-progress").textContent = message;
-      };
-      progress("Starting local OCR…");
-      questions = await readScannedPages(
-        qdoc!,
-        Array.from({ length: last - first + 1 }, (_, i) => first + i),
-        qc,
-        controller.signal,
-        progress,
-      );
-      solutions = await readScannedPages(
-        sdoc!,
-        Array.from(
-          { length: range.end - range.start + 1 },
-          (_, i) => range.start + i,
-        ),
-        sc,
-        controller.signal,
-        progress,
-      );
-      key += `:ocr-v1:${first}-${last}:${qc}-${sc}`;
-    }
-    if (token !== revision || controller.signal.aborted) return;
+    const questions = singlePages.slice(0, range.start - 1);
+    const solutions = singlePages.slice(range.start - 1, range.end);
+    const key = `${singleFingerprint}:single:${range.start}-${range.end}`;
     finishPair(
       questions,
       solutions,
@@ -1002,20 +822,13 @@ el<HTMLFormElement>("range-form").onsubmit = async (event) => {
     startStudy();
     el("range-open").hidden = false;
     el("range-open").textContent = `Answer pages ${range.start}–${range.end}`;
-    el("ai-status").hidden = true;
     el<HTMLDialogElement>("answer-range").close();
   } catch (error) {
-    if (token !== revision || controller.signal.aborted) return;
     el("range-error").textContent =
       error instanceof Error
         ? error.message
         : "Could not read this range. Choose different answer pages.";
     el("range-error").hidden = false;
-  } finally {
-    if (token === revision && ocrController === controller) {
-      ocrController = undefined;
-      setOcrBusy(false);
-    }
   }
 };
 function updateFiles() {
@@ -1171,12 +984,13 @@ function studyState(): StudyState {
     singlePages,
     singleFingerprint,
     answerRange,
-    ocr: {
-      enabled: el<HTMLInputElement>("ocr-enabled").checked,
-      first: el<HTMLInputElement>("ocr-question-start").value,
-      last: el<HTMLInputElement>("ocr-question-end").value,
-      questions: el<HTMLSelectElement>("ocr-question-columns").value,
-      answers: el<HTMLSelectElement>("ocr-answer-columns").value,
+    // Keep legacy scan metadata for reopening saved regions and exporting backups.
+    ocr: currentStudy?.set.state.ocr ?? {
+      enabled: false,
+      first: "1",
+      last: "1",
+      questions: "1",
+      answers: "2",
     },
     position: position(),
     zoom,
@@ -1403,6 +1217,11 @@ async function openStudy(set: StudySet) {
     if (cancelled()) return;
     [qdoc, sdoc] = docs;
     const state = set.state;
+    // Older builds captured unsubmitted checkbox edits. The successful run's
+    // fingerprint, not that checkbox, identifies saved OCR source regions.
+    const recognizedScan = state.fingerprint.includes(":ocr-v1:");
+    const recognitionChanged = state.ocr.enabled !== recognizedScan;
+    state.ocr = { ...state.ocr, enabled: recognizedScan };
     if (
       state.qpages.some((p) => p.page > qdoc!.numPages) ||
       state.sources.some((s) =>
@@ -1414,10 +1233,13 @@ async function openStudy(set: StudySet) {
     )
       throw new Error("Saved source pages do not match these PDFs.");
     qpages = state.qpages;
-    matches = state.matches;
+    matches = splitForReview(state.matches);
     sourceSolutions = state.sources;
     fingerprint = state.fingerprint;
-    el("report-scope").textContent = state.reportScope;
+    el("report-scope").textContent = state.reportScope.replace(
+      " AI checks extracted text against up to 12 candidate solutions per question.",
+      "",
+    );
     singlePages = state.singlePages;
     singleName = state.questionName;
     singleFingerprint = state.singleFingerprint;
@@ -1436,13 +1258,7 @@ async function openStudy(set: StudySet) {
     )!;
     mode.checked = true;
     updateMode();
-    el<HTMLInputElement>("ocr-enabled").checked = state.ocr.enabled;
-    el("ocr-options").hidden = !state.ocr.enabled;
-    el<HTMLInputElement>("ocr-question-start").value = state.ocr.first;
-    el<HTMLInputElement>("ocr-question-end").value = state.ocr.last;
-    el<HTMLSelectElement>("ocr-question-columns").value = state.ocr.questions;
-    el<HTMLSelectElement>("ocr-answer-columns").value = state.ocr.answers;
-    if (answerRange) {
+    if (answerRange && !state.ocr.enabled) {
       el("range-open").hidden = false;
       el("range-open").textContent =
         `Answer pages ${answerRange.start}–${answerRange.end}`;
@@ -1464,7 +1280,12 @@ async function openStudy(set: StudySet) {
       failed: "",
     };
     updateSaveStatus();
-    if (set.meta.version === 0) {
+    if (
+      set.meta.version === 0 ||
+      recognitionChanged ||
+      matches.length !== state.matches.length ||
+      matches.some((match, index) => match !== state.matches[index])
+    ) {
       scheduleStudy();
       await flushStudy();
     }

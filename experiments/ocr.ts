@@ -1,6 +1,6 @@
 import { createWorker, OEM, PSM } from "tesseract.js";
-import type { PDFDocumentProxy } from "./pdf";
-import type { PageText, TextSpan } from "./model";
+import type { PDFDocumentProxy } from "../src/pdf";
+import type { PageText, TextSpan } from "../src/model";
 import { readMarginLabels, type GlyphBank } from "./ocr-labels";
 import { abortable } from "./ocr-abort";
 

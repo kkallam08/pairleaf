@@ -1,0 +1,9 @@
+{
+  "name": "pairleaf-recognition-experiments",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0"
+  }
+}

@@ -892,7 +892,7 @@ dialog::backdrop {
   }
 }
 
-.helper-code {
+.review-field {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -938,51 +938,21 @@ dialog::backdrop {
   color: #8b303f;
   font-size: 13px;
 }
-.ocr-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  margin: 16px 0;
-}
-#ocr-options .range-fields {
-  margin-bottom: 12px;
-}
-#ocr-options select {
-  padding: 8px;
-  min-width: 0;
-  border: 1px solid var(--line);
-  background: white;
-}
-#ocr-progress {
-  font-size: 13px;
-  color: var(--accent);
-}
-.helper-code input,
-.helper-code select {
+.review-field input,
+.review-field select {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 4px;
   min-width: 0;
 }
-.ai-actions {
+.dialog-actions {
   display: flex;
   gap: 10px;
   margin: 18px 0;
 }
-#ai-progress,
 #review-evidence {
   font-size: 13px;
   line-height: 1.6;
-}
-.ai-status {
-  margin: 0;
-  padding: 8px 20px;
-  font-size: 12px;
-  background: #e6dff0;
-}
-#reader:has(.ai-status:not([hidden])) .reading-grid {
-  height: calc(100dvh - 136px);
 }
 #review-preview-pages {
   max-height: 42vh;
@@ -1007,9 +977,6 @@ dialog::backdrop {
   }
   #reader .reading-grid {
     height: calc(100dvh - 120px);
-  }
-  #reader:has(.ai-status:not([hidden])) .reading-grid {
-    height: calc(100dvh - 170px);
   }
 }
 .setup-heading {
@@ -1118,8 +1085,7 @@ dialog::backdrop {
   flex-direction: column;
   height: calc(100dvh - 56px);
 }
-#reader .reading-grid,
-#reader:has(.ai-status:not([hidden])) .reading-grid {
+#reader .reading-grid {
   height: auto;
   flex: 1;
   min-height: 0;

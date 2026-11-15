@@ -5,7 +5,7 @@ import {
   rankCandidates,
   restoreChoices,
   sourceKey,
-} from "../src/ai";
+} from "../experiments/ai";
 import type { PageText, Match, Solution } from "../src/model";
 const page = (lines: string[]): PageText => ({
   page: 1,

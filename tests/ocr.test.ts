@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeOcr } from "../src/ocr-layout";
-import { abortable } from "../src/ocr-abort";
+import { analyzeOcr } from "../experiments/ocr-layout";
+import { abortable } from "../experiments/ocr-abort";
 import { matchDocuments } from "../src/matching";
 import type { PageText, TextSpan } from "../src/model";
 

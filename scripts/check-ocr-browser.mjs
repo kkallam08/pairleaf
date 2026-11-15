@@ -1,3 +1,4 @@
+// Historical UI check for commit bbda4ef; not a check of the current local MVP.
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import os from "node:os";

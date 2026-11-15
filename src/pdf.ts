@@ -1,5 +1,10 @@
-import { getDocument, GlobalWorkerOptions, Util, OPS } from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import {
+  getDocument,
+  GlobalWorkerOptions,
+  Util,
+  OPS,
+} from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { PDFDocumentProxy, PDFDocumentLoadingTask } from "pdfjs-dist";
 import type { PageText } from "./model";
 GlobalWorkerOptions.workerSrc = workerUrl;

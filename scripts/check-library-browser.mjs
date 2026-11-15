@@ -1,6 +1,7 @@
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { pdfBookFixture } from "../tests/pdf-fixture.mjs";
 const out = path.resolve("output/library");
 await fs.mkdir(out, { recursive: true });
@@ -21,7 +22,7 @@ async function launch() {
   });
   const session = await context.browser().newBrowserCDPSession();
   const { id } = await session.send("Extensions.loadUnpacked", {
-    path: path.resolve("dist"),
+    path: path.resolve(process.env.PAIRLEAF_EXTENSION_DIR ?? "dist"),
   });
   url = `chrome-extension://${id}/index.html`;
   await context.setOffline(true);
@@ -88,6 +89,22 @@ async function open(title) {
   await page.locator(".library-book").filter({ hasText: title }).click();
   await expect(page.locator("#library-dialog")).not.toBeVisible();
   await saved();
+}
+function backupWithMetadata(original, metadata) {
+  const previousSize = original.readUInt32BE(8);
+  const encoded = Buffer.from(JSON.stringify(metadata));
+  const header = Buffer.from(original.subarray(0, 44));
+  header.writeUInt32BE(encoded.length, 8);
+  createHash("sha256").update(encoded).digest().copy(header, 12);
+  return Buffer.concat([header, encoded, original.subarray(44 + previousSize)]);
+}
+async function exportedMetadata(filename) {
+  const download = page.waitForEvent("download");
+  await page.locator("#study-export").click();
+  const file = path.join(out, filename);
+  await (await download).saveAs(file);
+  const bytes = await fs.readFile(file);
+  return JSON.parse(bytes.subarray(44, 44 + bytes.readUInt32BE(8)).toString());
 }
 try {
   await launch();
@@ -323,6 +340,168 @@ try {
   ).toBeLessThanOrEqual(390);
   checks.push(
     "Damaged backups do not create entries; library fits mobile width",
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await open("Biology textbook");
+  const legacyDownload = page.waitForEvent("download");
+  await page.locator("#study-export").click();
+  const legacyPath = path.join(out, "legacy.pairleaf");
+  await (await legacyDownload).saveAs(legacyPath);
+  const original = await fs.readFile(legacyPath);
+  const size = original.readUInt32BE(8);
+  const legacy = JSON.parse(original.subarray(44, 44 + size).toString());
+  // Stage 2 saved live checkbox values even after cancelling edits to the range dialog.
+  const cancelledOcr = structuredClone(legacy);
+  cancelledOcr.title = "Legacy selectable text";
+  cancelledOcr.state.ocr.enabled = true;
+  await library();
+  await page.locator("#backup-file").setInputFiles({
+    name: "cancelled-ocr.pairleaf",
+    mimeType: "application/octet-stream",
+    buffer: backupWithMetadata(original, cancelledOcr),
+  });
+  await expect(page.locator("#library-dialog")).not.toBeVisible();
+  await saved();
+  await expect(page.locator("#range-open")).toBeVisible();
+  await page.locator("#range-open").click();
+  await expect(page.locator("#range-start")).toHaveValue("3");
+  await expect(page.locator("#range-end")).toHaveValue("6");
+  await page.locator("#range-cancel").click();
+  await page.reload();
+  await library();
+  await open("Legacy selectable text");
+  await expect(page.locator("#range-open")).toBeVisible();
+  const correctedText = await exportedMetadata("cancelled-ocr.pairleaf");
+  expect(correctedText.state.ocr).toEqual({
+    ...cancelledOcr.state.ocr,
+    enabled: false,
+  });
+  expect(correctedText.state.fingerprint).toBe(cancelledOcr.state.fingerprint);
+  expect(correctedText.hashes).toEqual(cancelledOcr.hashes);
+  checks.push(
+    "Cancelled legacy OCR checkbox does not disable range editing for a selectable-text study",
+  );
+  legacy.title = "Legacy textbook";
+  legacy.state.ocr = {
+    enabled: false,
+    first: "1",
+    last: "2",
+    questions: "1",
+    answers: "2",
+  };
+  legacy.state.fingerprint += ":ocr-v1:1-2:1-2";
+  legacy.state.reportScope +=
+    " AI checks extracted text against up to 12 candidate solutions per question.";
+  legacy.state.matches[0].status = "suggested";
+  legacy.state.matches[0].confirmed = false;
+  legacy.state.matches[0].aiChecked = true;
+  legacy.state.matches[0].reason =
+    "Saved source proposal; confirm before revealing.";
+  await library();
+  await page.locator("#backup-file").setInputFiles({
+    name: "legacy.pairleaf",
+    mimeType: "application/octet-stream",
+    buffer: backupWithMetadata(original, legacy),
+  });
+  await expect(page.locator("#library-dialog")).not.toBeVisible();
+  await saved();
+  await expect(page.locator("#range-open")).toBeHidden();
+  await expect(page.locator("#match-count")).toHaveText(
+    "0 matched / 2 questions",
+  );
+  await page.locator("#report-open").click();
+  await expect(page.locator("#report-scope")).not.toContainText("AI checks");
+  await page
+    .getByRole("button", {
+      name: "Review solution for chapter 1 / exercise A / 1",
+      exact: true,
+    })
+    .click();
+  await expect(page.locator("#review-preview-pages")).toBeHidden();
+  await page.locator("#review-preview").click();
+  await expect(
+    page.locator("#review-preview-pages [data-rendered=true]"),
+  ).toHaveCount(2);
+  await page.locator("#review-confirm").click();
+  await page.locator("#report-close").click();
+  await saved();
+  await page.reload();
+  await library();
+  await open("Legacy textbook");
+  await expect(page.locator("#range-open")).toBeHidden();
+  await expect(page.locator("#match-count")).toHaveText(
+    "1 matched / 2 questions",
+  );
+  const preserved = await exportedMetadata("legacy.pairleaf");
+  expect(preserved.state.ocr).toEqual({ ...legacy.state.ocr, enabled: true });
+  expect(preserved.hashes).toEqual(legacy.hashes);
+  expect(preserved.state.matches[0].confirmed).toBe(true);
+  checks.push(
+    "Legacy recognition backups reopen without engines, retain source regions and settings, and allow local confirmation",
+  );
+  // Simulate a pre-upgrade saved record whose unsafe question was marked confirmed.
+  await page.locator("#replace").click();
+  const unsafeId = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("pairleaf-library", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(["entries", "states"], "readwrite");
+        let id;
+        const entries = tx.objectStore("entries").getAll();
+        entries.onsuccess = () => {
+          id = entries.result.find(
+            (entry) => entry.title === "Legacy textbook",
+          ).id;
+          const state = tx.objectStore("states").get(id);
+          state.onsuccess = () => {
+            state.result.matches[0].questions[0].issue =
+              "Legacy uncertain question bounds";
+            state.result.matches[0].status = "matched";
+            state.result.matches[0].confirmed = true;
+            tx.objectStore("states").put(state.result, id);
+          };
+        };
+        tx.oncomplete = () => resolve(id);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  await page.reload();
+  await library();
+  await open("Legacy textbook");
+  await expect(
+    page.getByRole("button", {
+      name: "Show solution for chapter 1 / exercise A / 1",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  // Read storage immediately after the open/save completes, without scrolling or editing.
+  const migrated = await page.evaluate(async (id) => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("pairleaf-library", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction("states").objectStore("states").get(id);
+        request.onsuccess = () => resolve(request.result.matches[0]);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, unsafeId);
+  expect(migrated.status).toBe("unsafe");
+  expect(migrated.confirmed).toBe(false);
+  checks.push(
+    "Opening a legacy unsafe confirmed match disables reveal and persists the corrected status without an edit",
   );
   expect(errors).toEqual([]);
   expect(network).toEqual([]);

@@ -30,6 +30,10 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`chrome-extension://${id}/index.html`);
+  await expect(
+    page.locator("#ai-open, #ai-setup, #helper-code, #ocr-enabled"),
+  ).toHaveCount(0);
+  await expect(page.locator(".local-badge")).toHaveText("On this device");
   await page.screenshot({ path: path.join(out, "import-desktop.png") });
   await expect(
     page.getByRole("radio", { name: "Answers in this PDF" }),
@@ -88,7 +92,7 @@ try {
   await page.getByRole("button", { name: "Pair PDFs", exact: true }).click();
   await expect(page.locator("#reader")).toBeVisible();
   await expect(page.locator("#match-count")).toHaveText(
-    "2 matched / 4 questions",
+    "2 matched / 5 questions",
   );
   checks.push(
     "Invalid drops recover; valid drops populate real file inputs and pair successfully",
