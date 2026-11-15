@@ -66,6 +66,9 @@ try {
     await expect(page.locator("#answer-range")).toBeVisible();
   }
   await openBook();
+  await expect(
+    page.locator("#ocr-enabled, #ocr-options, #ocr-progress"),
+  ).toHaveCount(0);
   await expect(page.locator("#range-start")).toHaveValue("3");
   await expect(page.locator("#range-end")).toHaveValue("5");
   await expect(page.locator("#range-preview")).toBeHidden();

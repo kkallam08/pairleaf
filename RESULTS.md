@@ -1,5 +1,38 @@
 # Validation results
 
+## Stage 3 review and stage 4 readiness — November 14, 2026
+
+Review found and fixed these concrete issues before the user's commit:
+
+- **Unsafe questions could reveal automatically.** A unique question carrying a parser boundary issue was still marked matched when its solution was safe. Fresh matching, cached choices, and legacy record normalization now keep it unsafe and unconfirmed. A browser migration case verifies that an old matched/confirmed record is downgraded and persisted immediately on open, without scrolling or editing.
+- **Crop padding could cross narrow formula gaps.** Fixed padding plus a tolerance repeatedly expanded a boundary into the preceding question. Strict glyph intersections and padding bounded by real whitespace preserve separation. This recovered the false flags on course questions 5.2.3 and 7.3.3 while retaining the unsafe-boundary checks. Actual source excerpts on PDF pages 236 and 323 were visually checked; radicals and denominators are preserved. Private evidence: `output/review-crop/`.
+- **Cancelled OCR edits could disable range correction after upgrade.** Stage 2 recorded the checkbox even when its edits were cancelled. Successful recognition is now identified by the fingerprint marker. Tests cover clean-text sets with a stale true flag and OCR sets with a stale false flag, reopening/exporting both while preserving page/column settings and PDF checksums.
+- **The modern PDF.js build did not honor the declared older-Chrome support.** Removing newer JavaScript built-ins reproduced a render failure. Matching legacy main/worker builds now supply compatibility fallbacks. The new offline browser check renders both question and answer with those APIs removed. Mozilla documents [legacy browser support](https://github.com/mozilla/pdf.js/wiki/Frequently-Asked-Questions); this simulation is not an actual Chrome 130 run or complete minimum-version certification.
+- **The existing ZIP was stale, and packaging did not rebuild/audit it.** The old archive still contained localhost permission and OCR assets. The packager now builds and audits `dist`, derives the version from the manifest, checks archive contents against build inputs, excludes private files, and verifies both archives before replacing local candidates. The source ZIP also includes the previously omitted handoff.
+
+Validation after the runtime fixes: **33 unit tests**, TypeScript/production build and artifact audit pass. Offline interface, single-PDF, library/migration, compatibility, and full course checks pass with no unexpected network requests or browser errors. Fresh course analysis reports **236 matched / 236 questions**, and the expanded browser regression verifies **14 source reveals**, including the two corrected questions. The build is approximately **5.0 MiB** unpacked. The new compatibility and migration tests were first reproduced failing against the prior build.
+
+The packaging test deliberately put a localhost permission and an OCR sentinel file into stale `dist` output. Running the packager rebuilt and removed both, verified the extension and source ZIPs, and refreshed the local candidates. The extracted extension ZIP then passed the full 10-case library suite (both PDF modes, backups, failures, and migrations) and the compatibility rendering check in fresh offline Chrome profiles. No external requests or browser errors occurred.
+
+Stage 4 is not a public-release approval: real non-mathematics benchmark material, final installation/privacy statements, icons, store images/listing, developer registration, and minimum-browser coverage remain gates in PLAN.md. The README's obsolete feature and storage statements must be corrected before publication; stage 5 records the requested broader presentation cleanup. Final publication candidates need installation checks again after release assets change. No commit, merge, push, or publication was performed.
+
+## Local MVP build — November 14, 2026
+
+Stage 3 removes the AI/helper setup, run/status controls, and OCR form from the reader. The packaged extension has no host permissions and its connection policy permits only its own origin. Root dependencies now contain PDF.js only; the Tesseract engine, English data, and associated assets/notices are absent from `dist`. PDF.js's own fonts, CMaps, worker, and image-decoding WASM remain. The final unpacked build measures **4.9 MiB**.
+
+Manual source review, preview, confirmation, and file fingerprints are independent of AI in `src/review.ts`. Duplicate question labels become separate unresolved entries, so users can correct each one locally. Question counts now reflect these individual entries. Uncertain question bounds still block confirmation. The old recognition code is preserved under `experiments/`, with the integrated prototype available at `bbda4ef`.
+
+Existing library records and version-1 `.pairleaf` backups retain original PDF bytes, source regions, and review status. A compatibility browser case imports saved OCR settings and an unconfirmed source proposal, previews its two original regions, confirms it locally, reloads, and exports with the same PDF checksums and OCR settings. Saved OCR answer ranges cannot be edited in this build; new scans require a future OCR release.
+
+Validation passed:
+
+- A clean locked dependency install, **30 unit tests**, TypeScript checking, and the production build. Three new local-review tests cover independent duplicate choices, unsafe boundaries, and compatible fingerprints that invalidate when PDF bytes change. Existing pure AI/OCR logic tests remain as checks on the deferred source modules.
+- The build artifact check verifies the actual manifest, local connection policy, absence of helper/OCR code and assets, and presence of PDF rendering assets.
+- Offline Chrome **interface**, **single-PDF**, **library/backup**, and **course-pair** suites pass. The course pair restores from the library, retains **236 matches and 12 sampled source reveals**, and exercises manual correction of one repeated-number question while leaving the other unresolved. The library suite also covers full browser restart, storage failures, corruption, and legacy backups.
+- Desktop and 390px interface screenshots were inspected. No uncaught page errors or external HTTP(S) requests occurred in the completed browser suites. No paid API calls were made.
+
+The interface fixture's expected question total changed from four grouped identifiers to five individual questions; it passed after that assertion was updated. New-scanned-document support and broad cross-subject accuracy remain outside this gate. Stage 4 still requires the agreed release benchmark and publishing materials. This branch has not been committed, pushed, or released.
+
 ## Study library and backups — November 14, 2026
 
 MVP stages 1 and 2 add automatic local saving for PDF pairs and single-PDF study sets. The library reopens the original PDFs with saved question/source regions, pending and confirmed matches, answer ranges, reading position, and zoom. Rename and delete operate on saved sets. Reopening skips text extraction, OCR, and AI matching. The existing experimental OCR settings are included in state; broad OCR support is still outside the selectable-text MVP.
@@ -16,7 +49,7 @@ Verification:
 - The real course-note regression retains **236 matched questions and 12 sampled reveals**, with exact source-region, scroll, zoom, cancellation, and error-recovery checks. It now reopens the pair from the library after a reload before running those reveal checks.
 - Desktop and mobile library screenshots were visually inspected. Evidence is private in `output/library/`; the reproducible test is `npm.cmd run test:library` after building. The library fixtures use invented biology questions, not a real cross-subject accuracy benchmark.
 
-Limits: storage belongs to the current Chrome profile and extension installation. Clearing extension data or uninstalling can remove the library; export backups before moving or reinstalling. Import creates a separate copy, and raw-PDF reimport also creates a new study set. Disk capacity remains browser/device dependent. Backup metadata is limited to 32 MiB of extracted text/state (PDF bytes are separate); exceptionally large metadata is rejected with an error. Export hashing still needs memory for each PDF. The forced interruption test verifies transaction rollback, not physical power-loss durability. AI/OCR controls remain in this development build until MVP stage 3; this is not a published release.
+Limits: storage belongs to the current Chrome profile and extension installation. Clearing extension data or uninstalling can remove the library; export backups before moving or reinstalling. Import creates a separate copy, and raw-PDF reimport also creates a new study set. Disk capacity remains browser/device dependent. Backup metadata is limited to 32 MiB of extracted text/state (PDF bytes are separate); exceptionally large metadata is rejected with an error. Export hashing still needs memory for each PDF. The forced interruption test verifies transaction rollback, not physical power-loss durability. AI/OCR controls were still present at this milestone; the stage 3 entry above records their removal.
 
 ## Local OCR — November 8, 2026
 

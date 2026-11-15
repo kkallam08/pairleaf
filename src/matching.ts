@@ -12,18 +12,20 @@ export function matchDocuments(
     const status =
       questions.length > 1 || candidates.length > 1
         ? "ambiguous"
-        : !candidates.length
-          ? "missing"
-          : candidates[0].issue
-            ? "unsafe"
-            : "matched";
+        : questions[0].issue
+          ? "unsafe"
+          : !candidates.length
+            ? "missing"
+            : candidates[0].issue
+              ? "unsafe"
+              : "matched";
     const reason =
       status === "ambiguous"
         ? `Duplicate identifier: ${questions.length} question headings, ${candidates.length} solution headings.`
         : status === "missing"
           ? "No solution heading with this identifier."
           : status === "unsafe"
-            ? candidates[0].issue!
+            ? (questions[0].issue ?? candidates[0].issue!)
             : "Ready to reveal";
     return { id, questions, solutions: candidates, status, reason };
   });

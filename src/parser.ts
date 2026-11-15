@@ -31,8 +31,17 @@ function cropTop(page: PageText, span: TextSpan) {
   let cut = span.y - Math.max(7, span.height * 0.65);
   const body = page.items.filter((i) => isBody(page, i));
   for (let pass = 0; pass < 20; pass++) {
-    const crossing = body.filter((i) => i.y < cut + 1 && i.bottom > cut - 1);
-    const next = Math.min(cut, ...crossing.map((i) => i.y - 2));
+    const crossing = body.filter((i) => i.y < cut && i.bottom > cut);
+    if (!crossing.length) break;
+    const top = Math.min(...crossing.map((i) => i.y));
+    const previousBottom = Math.max(
+      page.height * 0.055,
+      ...body.filter((i) => i.bottom <= top).map((i) => i.bottom),
+    );
+    // A fixed pad can cross a narrow gap and pull in the preceding question.
+    // Keep the edge inside the actual whitespace above the intersecting glyphs.
+    const padding = Math.min(2, (top - previousBottom) / 2);
+    const next = Math.min(cut, top - padding);
     if (next === cut) break;
     cut = next;
   }

@@ -1,4 +1,4 @@
-import type { Analysis, PageText, Solution, TextSpan } from "./model";
+import type { Analysis, PageText, Solution, TextSpan } from "../src/model";
 
 interface Event {
   y: number;

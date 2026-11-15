@@ -7,7 +7,7 @@ import {
   rankCandidates,
   requestBody,
   sourceKey,
-} from "../src/ai";
+} from "../experiments/ai";
 import { createMatcher } from "../server/matching.mjs";
 import type { PageText, Match } from "../src/model";
 

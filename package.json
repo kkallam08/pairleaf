@@ -5,25 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5181 --strictPort",
-    "build": "tsc --noEmit && vite build && node scripts/package.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/package.mjs && node scripts/check-public-build.mjs",
     "test": "vitest run",
     "check": "npm run test && npm run build",
     "inspect": "tsx scripts/inspect.ts",
     "test:browser": "node scripts/browser-test.mjs",
     "test:interface": "node scripts/interface-test.mjs",
-    "ai": "node --env-file=.env.local server/start.mjs",
-    "test:helper": "node scripts/check-helper.mjs",
-    "evaluate:ai": "node --env-file=.env.local scripts/evaluate-ai.mjs",
-    "evaluate:m116": "node --env-file=.env.local --import tsx scripts/evaluate-m116.ts",
-    "test:ai-browser": "node scripts/check-ai-browser.mjs",
     "test:single": "node scripts/check-single-browser.mjs",
-    "test:ocr": "node scripts/check-ocr-browser.mjs",
-    "test:library": "node scripts/check-library-browser.mjs"
+    "test:library": "node scripts/check-library-browser.mjs",
+    "test:compat": "node scripts/check-compat-browser.mjs"
   },
   "dependencies": {
-    "@tesseract.js-data/eng": "1.0.0",
-    "pdfjs-dist": "6.5.438",
-    "tesseract.js": "7.0.0"
+    "pdfjs-dist": "6.5.438"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

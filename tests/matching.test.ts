@@ -78,6 +78,27 @@ describe("identifier and heading extraction", () => {
   });
 });
 describe("matching safety", () => {
+  it("keeps unsafe question bounds unresolved even with one safe answer", () => {
+    const questions = analyze(
+      Array.from({ length: 14 }, (_, index) =>
+        page(
+          [span(index ? sentence : "1.1.1. Describe this passage.", 100)],
+          index + 1,
+        ),
+      ),
+      "questions",
+    );
+    const answers = analyze(
+      [page([span("1.1.1. The original answer.", 100)])],
+      "solutions",
+    );
+    expect(questions.headings[0].issue).toContain("more than 12 pages");
+    expect(answers.solutions[0].issue).toBeUndefined();
+    const [match] = matchDocuments(questions.headings, answers.solutions);
+    expect(match.status).toBe("unsafe");
+    expect(match.reason).toBe(questions.headings[0].issue);
+    expect(match.solutions).toEqual(answers.solutions);
+  });
   it("never picks among duplicate question or solution identifiers", () => {
     const q = analyze(
       [
@@ -187,6 +208,34 @@ describe("bounded original page regions", () => {
     expect(
       a.solutions[0].regions[0].y + a.solutions[0].regions[0].height,
     ).toBeLessThan(284);
+  });
+  it("keeps narrow formula gaps instead of expanding into preceding questions", () => {
+    const a = analyze(
+      [
+        page([
+          span("1.1.1. First answer.", 100),
+          span("denominator", 126, 180),
+          span("1.1.2. Radical answer.", 149),
+          span("radical", 139, 240),
+          span("denominator", 149.5, 240),
+          span("1.1.3. Third answer.", 168),
+        ]),
+      ],
+      "solutions",
+    );
+    expect(a.solutions.every((s) => !s.issue)).toBe(true);
+    const secondTop = a.solutions[1].regions[0].y;
+    expect(secondTop).toBeGreaterThan(137);
+    expect(secondTop).toBeLessThan(139);
+    const thirdTop = a.solutions[2].regions[0].y;
+    expect(thirdTop).toBeGreaterThan(160.5);
+    expect(thirdTop).toBeLessThan(168);
+    expect(a.solutions[0].regions[0].y + a.solutions[0].regions[0].height).toBe(
+      secondTop,
+    );
+    expect(a.solutions[1].regions[0].y + a.solutions[1].regions[0].height).toBe(
+      thirdTop,
+    );
   });
   it("marks an implausible open boundary unsafe", () => {
     const pages = Array.from({ length: 15 }, (_, i) =>

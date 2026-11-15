@@ -1,7 +1,7 @@
-import type { Heading, Match, Solution } from "./model";
+import type { Heading, Match, Solution } from "../src/model";
 
-export const sourceKey = (source: Heading) =>
-  `${source.page}:${source.y.toFixed(2)}:${source.id}`;
+import { sourceKey } from "../src/review";
+export { sourceKey, pairFingerprint, restoreChoices } from "../src/review";
 export interface AiResult {
   candidateKey: string | null;
   confidence: "supported" | "uncertain" | "none";
@@ -113,51 +113,4 @@ export function applySuggestion(
       complete,
     ),
   };
-}
-
-export async function pairFingerprint(
-  questionBytes: ArrayBuffer,
-  solutionBytes: ArrayBuffer,
-) {
-  const hash = async (bytes: ArrayBuffer) =>
-    [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  return `pairleaf-review-v1:${await hash(questionBytes)}:${await hash(solutionBytes)}`;
-}
-export function restoreChoices(
-  matches: Match[],
-  solutions: Solution[],
-  saved: unknown,
-): Match[] {
-  if (!saved || typeof saved !== "object") return matches;
-  return matches.flatMap((match) => {
-    const hasChoice = match.questions.some((q) =>
-      Object.hasOwn(saved, sourceKey(q)),
-    );
-    if (!hasChoice) return [match];
-    return match.questions.map((question, index) => {
-      const value = (saved as Record<string, unknown>)[sourceKey(question)];
-      const chosen = solutions.find((s) => sourceKey(s) === value && !s.issue);
-      if ((!chosen && value !== null) || question.issue)
-        return {
-          ...match,
-          questions: [question],
-          id:
-            match.questions.length > 1
-              ? `${match.id} (${index + 1})`
-              : match.id,
-        };
-      return {
-        ...match,
-        id:
-          match.questions.length > 1 ? `${match.id} (${index + 1})` : match.id,
-        questions: [question],
-        solutions: chosen ? [chosen] : [],
-        status: chosen ? ("matched" as const) : ("missing" as const),
-        reason: "Your saved choice",
-        confirmed: true,
-      };
-    });
-  });
 }
