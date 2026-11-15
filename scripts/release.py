@@ -25,6 +25,7 @@ def permitted(path):
     parts = Path(path).parts
     return not (private_dirs.intersection(parts)
                 or any(part.startswith(".env") for part in parts)
+                or Path(path).name.lower() == "plan.md"
                 or Path(path).suffix.lower() in {".pdf", ".pairleaf", ".pyc"})
 
 
@@ -60,9 +61,9 @@ def audit(archive_path, expected, extension):
             assert not any("ocr-assets" in name or "traineddata" in name for name in names)
 
 source_files = [".gitignore", "package.json", "package-lock.json", "tsconfig.json",
-                "vite.config.ts", "index.html", "README.md", "HANDOFF.md", "RESULTS.md", "PLAN.md",
-                "THIRD_PARTY_NOTICES.txt"]
-source_dirs = ["src", "public", "tests", "scripts", "server", "experiments"]
+                "vite.config.ts", "index.html", "README.md", "RESULTS.md",
+                "PRIVACY.md", "CHANGELOG.md", "THIRD_PARTY_NOTICES.txt"]
+source_dirs = ["src", "public", "tests", "scripts", "server", "experiments", "docs"]
 source_entries = [(root / name, "paired-pdf-extension/" + name) for name in source_files]
 for directory in source_dirs:
     source_entries.extend(collect(directory, "paired-pdf-extension/" + directory + "/"))

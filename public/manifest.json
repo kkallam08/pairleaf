@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Pairleaf - paired PDF study reader",
+  "name": "Pairleaf - PDF study reader",
   "version": "0.1.0",
-  "description": "Pair local questions and solutions. Reveal one original solution at a time, without losing your place.",
+  "description": "Read PDF questions with their original solutions beside them. Open a PDF pair or textbook and save study sets on your device.",
   "minimum_chrome_version": "130",
   "action": {
     "default_title": "Open Pairleaf"
