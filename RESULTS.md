@@ -1,5 +1,23 @@
 # Validation results
 
+## Study library and backups — November 14, 2026
+
+MVP stages 1 and 2 add automatic local saving for PDF pairs and single-PDF study sets. The library reopens the original PDFs with saved question/source regions, pending and confirmed matches, answer ranges, reading position, and zoom. Rename and delete operate on saved sets. Reopening skips text extraction, OCR, and AI matching. The existing experimental OCR settings are included in state; broad OCR support is still outside the selectable-text MVP.
+
+Files, metadata, and state commit together in IndexedDB. Status changes to **Saved on this device** only after the transaction completes. An interrupted write creates no partial entry; an update failure preserves the last complete saved version. A stale reader cannot overwrite a version changed or deleted in another tab. The reader remains usable after failure, with explicit retry and export available. Leaving unsaved work prompts once and can be cancelled.
+
+The `.pairleaf` format contains original PDF bytes and versioned reader metadata with SHA-256 checksums. Import validates the file structure, state, checksums, and PDFs before saving a new study set. Backups contain source PDFs rather than links to the original file paths. They are portable copies, not annotated replacement PDFs.
+
+Verification:
+
+- **27 unit tests**, TypeScript checking, and the production build pass.
+- **Offline Chrome library suite:** full Chrome process restart restores a paired study, a manually corrected answer, zoom, and reading position; export/delete/import restores the set; single-PDF range correction and a two-page original answer survive reopening. It also checks concurrent deletion, interrupted transactions, injected storage exhaustion, preserved previous state, recovery/export, corrupt-PDF rejection, and a 390px layout. No uncaught page errors or external HTTP(S) requests occurred.
+- Existing single-PDF, interface, and mock-AI browser suites passed during this implementation. The mock suite makes no paid API calls.
+- The real course-note regression retains **236 matched questions and 12 sampled reveals**, with exact source-region, scroll, zoom, cancellation, and error-recovery checks. It now reopens the pair from the library after a reload before running those reveal checks.
+- Desktop and mobile library screenshots were visually inspected. Evidence is private in `output/library/`; the reproducible test is `npm.cmd run test:library` after building. The library fixtures use invented biology questions, not a real cross-subject accuracy benchmark.
+
+Limits: storage belongs to the current Chrome profile and extension installation. Clearing extension data or uninstalling can remove the library; export backups before moving or reinstalling. Import creates a separate copy, and raw-PDF reimport also creates a new study set. Disk capacity remains browser/device dependent. Backup metadata is limited to 32 MiB of extracted text/state (PDF bytes are separate); exceptionally large metadata is rejected with an error. Export hashing still needs memory for each PDF. The forced interruption test verifies transaction rollback, not physical power-loss durability. AI/OCR controls remain in this development build until MVP stage 3; this is not a published release.
+
 ## Local OCR — November 8, 2026
 
 Implemented a local scanned-exercise profile using bundled Tesseract.js, English data, original PDF rendering, blue margin-label detection, and a small digit-template bank learned from reliably recognized labels in the document. The parser uses exercise context, column order, visual whitespace boundaries, and horizontal splitting for answers sharing a row. OCR never rewrites the source formulas or diagrams. All proposed assignments require confirmation.
@@ -24,7 +42,7 @@ The offline browser check confirms the 24 expected identifiers, source-region co
 
 This is a checked two-exercise subset. The remaining chapters, review sets, automatic answer-section detection on scans, handwriting, black or differently colored labels, uneven columns, and general OCR reliability are unverified or unsupported. A numbering gap flags the preceding source as uncertain, but missed boundaries cannot always be detected. Mathematical OCR text is imperfect; optional cloud AI still receives text rather than source images. The review burden here is **100 confirmations per 100 questions**, above the planned target of at most 10. A 24/24 proposal result does not establish full-book accuracy.
 
-OCR runs again on reimport; only confirmed source choices persist. The next local-library step must store PDF bytes, ranges, column settings, recognized source regions, and choices.
+At this milestone, OCR ran again on raw-PDF reimport and only confirmed source choices persisted. The November 14 library delivery above adds stored PDFs, settings, and recognized source regions for reopening saved sets.
 
 ## Single-PDF mode — November 8, 2026
 
@@ -34,7 +52,7 @@ Twenty unit tests and the production build pass. The new offline `npm.cmd run te
 
 At this text-only milestone, the supplied Haese PDF loaded all 549 pages but its hidden text provided no recognized answer-section heading; entering PDF pages 485–546 produced the unsupported-heading/OCR message. The later local OCR delivery above adds a checked subset of this book. The automated text-mode fixtures use invented selectable text, and broader real-textbook accuracy remains unmeasured.
 
-Single-PDF mode supports one contiguous answer range on separate pages. PDF files and the chosen range still need to be selected after reloading. Saved confirmed choices restore when the same file and range are selected. The local study library is the next planned implementation in [PLAN.md](PLAN.md). Evidence is local in ignored `output/single-pdf/`.
+Single-PDF mode supports one contiguous answer range on separate pages. At this milestone, files and the range needed to be selected again after reloading; confirmed choices restored for the same file and range. The November 14 library delivery above removes that requirement for saved sets. Evidence is local in ignored `output/single-pdf/`.
 
 ## AI-assisted matching — November 8, 2026
 

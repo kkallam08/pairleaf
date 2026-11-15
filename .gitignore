@@ -4,6 +4,7 @@ release/
 tmp/
 output/
 *.pdf
+*.pairleaf
 *.tsbuildinfo
 .env
 .env.*

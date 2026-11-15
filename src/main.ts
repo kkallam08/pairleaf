@@ -1,5 +1,15 @@
 import "./style.css";
-import { markup } from "./ui";
+import { markup, libraryMarkup } from "./ui";
+import {
+  listStudies,
+  readStudy,
+  saveStudy,
+  renameStudy,
+  deleteStudy,
+  type StudySet,
+  type StudyState,
+} from "./library";
+import { exportStudy, importStudy, validateState } from "./backup";
 import {
   openPdf,
   extractPages,
@@ -27,7 +37,7 @@ import {
 } from "./ai";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = markup;
+app.innerHTML = markup + libraryMarkup;
 function el<T extends HTMLElement = HTMLElement>(id: string) {
   return document.getElementById(id) as T;
 }
@@ -81,6 +91,9 @@ function closeSolution(restoreFocus = false) {
   }
 }
 function reset() {
+  flushStudy();
+  currentStudy = undefined;
+  importedFiles = undefined;
   revision++;
   ocrController?.abort();
   ocrController = undefined;
@@ -165,6 +178,7 @@ async function pair(event: SubmitEvent) {
       single ? Promise.resolve(undefined) : sfile!.arrayBuffer(),
     ]);
     if (cancelled()) return;
+    importedFiles = { questions: qfile, solutions: single ? undefined : sfile };
     fingerprint = await pairFingerprint(qb, sb ?? qb);
     if (cancelled()) return;
     const qt = openPdf(new Uint8Array(qb)),
@@ -210,6 +224,7 @@ async function pair(event: SubmitEvent) {
     );
     update("Matching questions…", 95);
     finishPair(qpages, spages, qfile.name, sfile!.name, fingerprint);
+    startStudy();
     update("Pair ready", 100);
   } catch (error) {
     if (cancelled()) return;
@@ -273,6 +288,19 @@ function finishPair(
   } catch {
     /* An unavailable or malformed local cache does not block reading. */
   }
+  el("question-name").textContent = questionName;
+  el("question-name").title = questionName;
+  el("solution-name").textContent = solutionName;
+  el("solution-name").title = solutionName;
+  const extra = sa.headings.filter(
+    (s) => !qa.headings.some((q) => q.id === s.id),
+  );
+  el("report-scope").textContent =
+    qa.warnings.join(" ") +
+    ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses exercise context and numbers. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
+  mountReader(jumpToFirst, anchor);
+}
+function mountReader(jumpToFirst = true, anchor = position()) {
   const ready = matches.filter((m) => m.status === "matched").length;
   el("match-count").textContent =
     `${ready} matched / ${matches.length} questions`;
@@ -282,18 +310,8 @@ function finishPair(
         `${matches.filter((m) => m.status === status).length} ${status === "unsafe" ? "uncertain boundaries" : status}`,
     )
     .join(" · ");
-  const extra = sa.headings.filter(
-    (s) => !qa.headings.some((q) => q.id === s.id),
-  );
   el("report-summary").textContent =
     `${ready} matched. ${counts.replaceAll(" · ", ", ")}.`;
-  el("report-scope").textContent =
-    qa.warnings.join(" ") +
-    ` ${qa.headings.length} question headings and ${sa.headings.length} solution headings detected. ${extra.length} solution headings have no corresponding question. Local matching uses exercise context and numbers. AI checks extracted text against up to 12 candidate solutions per question. Undetected questions are not included in the counts.`;
-  el("question-name").textContent = questionName;
-  el("question-name").title = questionName;
-  el("solution-name").textContent = solutionName;
-  el("solution-name").title = solutionName;
   el("page-total").textContent = `/ ${qpages.at(-1)!.page}`;
   el<HTMLInputElement>("page-number").min = String(qpages[0].page);
   el<HTMLInputElement>("page-number").max = String(qpages.at(-1)!.page);
@@ -531,6 +549,7 @@ function renderReport() {
   }
 }
 function refreshMatches() {
+  scheduleStudy();
   const ready = matches.filter((m) => m.status === "matched").length;
   el("match-count").textContent =
     `${ready} matched / ${matches.length} questions`;
@@ -980,6 +999,7 @@ el<HTMLFormElement>("range-form").onsubmit = async (event) => {
       !answerRange,
     );
     answerRange = range;
+    startStudy();
     el("range-open").hidden = false;
     el("range-open").textContent = `Answer pages ${range.start}–${range.end}`;
     el("ai-status").hidden = true;
@@ -1049,13 +1069,16 @@ el("rail-find").onclick = () => {
 el("rail-review").onclick = () => el("report-open").click();
 el<HTMLFormElement>("pair-form").addEventListener("submit", pair);
 el("cancel").onclick = reset;
-el("replace").onclick = () => {
+async function replaceStudy() {
+  if (!(await leaveStudy())) return;
+  el<HTMLDialogElement>("library-dialog").close();
   reset();
   el<HTMLInputElement>("questions-file").value = "";
   el<HTMLInputElement>("solutions-file").value = "";
   updateFiles();
   el("questions-file").focus();
-};
+}
+el("replace").onclick = replaceStudy;
 el("close-solution").onclick = () => closeSolution(true);
 el("report-open").onclick = () => el<HTMLDialogElement>("report").showModal();
 el("report-close").onclick = () => el<HTMLDialogElement>("report").close();
@@ -1079,13 +1102,16 @@ el("next-page").onclick = () => goTo(position().page + 1);
 el("zoom").onchange = () => {
   zoom = Number(el<HTMLSelectElement>("zoom").value);
   renderQuestions();
+  scheduleStudy();
 };
 el("solution-zoom").onchange = () => {
   const m = matches.find((m) => m.id === activeId);
   if (m) showSolution(m, true);
+  scheduleStudy();
 };
 let scrollTick = false;
 qscroll.addEventListener("scroll", () => {
+  scheduleStudy();
   if (scrollTick) return;
   scrollTick = true;
   requestAnimationFrame(() => {
@@ -1110,6 +1136,393 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !document.querySelector("dialog[open]"))
     closeSolution(true);
 });
-window.addEventListener("beforeunload", () => {
-  for (const t of tasks) void t.destroy();
+window.addEventListener("beforeunload", (event) => {
+  flushStudy();
+  if (currentStudy?.dirty || currentStudy?.failed) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
+
+interface StudySession {
+  set: StudySet;
+  pending: Promise<void>;
+  generation: number;
+  dirty: boolean;
+  failed: string;
+}
+let currentStudy: StudySession | undefined;
+let importedFiles: StudySet["files"] | undefined;
+let studyTimer: ReturnType<typeof setTimeout> | undefined;
+function studyState(): StudyState {
+  return structuredClone({
+    questionName: el("question-name").textContent ?? "Questions",
+    solutionName: el("solution-name").textContent ?? "Solutions",
+    fingerprint,
+    reportScope: el("report-scope").textContent ?? "",
+    qpages: qpages.map((p) => ({
+      page: p.page,
+      width: p.width,
+      height: p.height,
+      items: [],
+    })),
+    matches,
+    sources: sourceSolutions,
+    singlePages,
+    singleFingerprint,
+    answerRange,
+    ocr: {
+      enabled: el<HTMLInputElement>("ocr-enabled").checked,
+      first: el<HTMLInputElement>("ocr-question-start").value,
+      last: el<HTMLInputElement>("ocr-question-end").value,
+      questions: el<HTMLSelectElement>("ocr-question-columns").value,
+      answers: el<HTMLSelectElement>("ocr-answer-columns").value,
+    },
+    position: position(),
+    zoom,
+    solutionZoom: el<HTMLSelectElement>("solution-zoom").value,
+  });
+}
+function updateSaveStatus() {
+  const session = currentStudy;
+  if (!session) return;
+  el("study-title").textContent = session.set.meta.title;
+  el("study-title").title = session.set.meta.title;
+  el("save-status").textContent = session.failed
+    ? `Unsaved. ${session.failed}`
+    : session.dirty
+      ? "Saving…"
+      : "Saved on this device";
+  el("save-status").classList.toggle("save-failed", Boolean(session.failed));
+  el("save-retry").hidden = !session.failed;
+}
+function startStudy() {
+  if (!importedFiles) return;
+  if (!currentStudy)
+    currentStudy = {
+      set: {
+        meta: {
+          id: crypto.randomUUID(),
+          title:
+            (el("question-name").textContent ?? "Study set")
+              .replace(/\.pdf$/i, "")
+              .trim()
+              .slice(0, 200) || "Study set",
+          version: 0,
+          updated: Date.now(),
+          questions: matches.length,
+          single: singlePages.length > 0,
+        },
+        state: studyState(),
+        files: importedFiles,
+      },
+      pending: Promise.resolve(),
+      generation: 0,
+      dirty: false,
+      failed: "",
+    };
+  scheduleStudy();
+  flushStudy();
+}
+function scheduleStudy() {
+  if (!currentStudy || el("reader").hidden) return;
+  currentStudy.dirty = true;
+  currentStudy.generation++;
+  updateSaveStatus();
+  clearTimeout(studyTimer);
+  if (!currentStudy.failed) studyTimer = setTimeout(flushStudy, 150);
+}
+function flushStudy() {
+  clearTimeout(studyTimer);
+  const session = currentStudy;
+  if (!session || !session.dirty) return session?.pending ?? Promise.resolve();
+  const state = studyState(),
+    generation = session.generation;
+  session.set.state = state;
+  session.pending = session.pending.then(async () => {
+    if (session.failed) return;
+    try {
+      const snapshot = {
+        ...session.set,
+        meta: {
+          ...session.set.meta,
+          questions: state.matches.length,
+          single: state.singlePages.length > 0,
+        },
+        state,
+      };
+      session.set.meta.version = await saveStudy(snapshot);
+      session.set.meta.questions = snapshot.meta.questions;
+      if (session.generation === generation) session.dirty = false;
+    } catch (error) {
+      session.failed =
+        error instanceof DOMException && error.name === "QuotaExceededError"
+          ? "Device storage is full. Export a backup or free space and retry."
+          : error instanceof Error
+            ? error.message
+            : "Device storage is unavailable. Export a backup or retry.";
+    }
+    if (session === currentStudy) updateSaveStatus();
+  });
+  return session.pending;
+}
+async function leaveStudy() {
+  await flushStudy();
+  return (
+    !currentStudy?.failed ||
+    confirm(
+      "This session has unsaved changes. Export a backup to keep them. Leave this session?",
+    )
+  );
+}
+async function downloadStudy(set: StudySet) {
+  const blob = await exportStudy(set);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${set.meta.title.replace(/[^\p{L}\p{N} _-]/gu, "_").slice(0, 80) || "Study set"}.pairleaf`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+let libraryBusy = false;
+async function libraryAction(action: () => Promise<void>) {
+  if (libraryBusy) return;
+  libraryBusy = true;
+  for (const button of el("library-dialog").querySelectorAll<HTMLButtonElement>(
+    "button",
+  ))
+    button.disabled = true;
+  el("library-message").textContent = "Working…";
+  try {
+    await action();
+  } catch (error) {
+    el("library-message").textContent =
+      error instanceof Error
+        ? error.message
+        : "Could not access the library. Try again.";
+  } finally {
+    libraryBusy = false;
+    for (const button of el(
+      "library-dialog",
+    ).querySelectorAll<HTMLButtonElement>("button"))
+      button.disabled = false;
+  }
+}
+async function refreshLibrary() {
+  const entries = await listStudies();
+  const list = el("library-list");
+  list.replaceChildren();
+  el("library-message").textContent = entries.length
+    ? ""
+    : "Your saved PDFs will appear here.";
+  for (const meta of entries) {
+    const row = document.createElement("article");
+    row.className = "library-entry";
+    const open = document.createElement("button");
+    open.className = "library-book";
+    const title = document.createElement("strong");
+    title.textContent = meta.title;
+    const detail = document.createElement("span");
+    detail.textContent = `${meta.single ? "One PDF" : "PDF pair"} · ${meta.questions} questions`;
+    open.append(title, detail);
+    open.onclick = () =>
+      void libraryAction(async () => {
+        if (!(await leaveStudy())) {
+          el("library-message").textContent = "";
+          return;
+        }
+        await openStudy(await readStudy(meta.id));
+      });
+    const actions = document.createElement("div");
+    actions.className = "library-entry-actions";
+    const add = (label: string, action: () => Promise<void>) => {
+      const button = document.createElement("button");
+      button.textContent = label;
+      button.setAttribute("aria-label", `${label} ${meta.title}`);
+      button.onclick = () => void libraryAction(action);
+      actions.append(button);
+    };
+    add("Rename", async () => {
+      const title = prompt("Study set name", meta.title)?.trim();
+      if (title) {
+        if (title.length > 200)
+          throw new Error("Use a name of 200 characters or fewer.");
+        if (currentStudy?.set.meta.id === meta.id) {
+          currentStudy.set.meta.title = title;
+          scheduleStudy();
+          await flushStudy();
+        } else await renameStudy(meta.id, title);
+      }
+      await refreshLibrary();
+    });
+    add("Export", async () => {
+      const set =
+        currentStudy?.set.meta.id === meta.id
+          ? { ...currentStudy.set, state: studyState() }
+          : await readStudy(meta.id);
+      await downloadStudy(set);
+      el("library-message").textContent = "Backup download started.";
+    });
+    add("Delete", async () => {
+      if (
+        confirm(`Delete “${meta.title}” and its saved PDFs from this device?`)
+      ) {
+        if (currentStudy?.set.meta.id === meta.id) {
+          await flushStudy();
+          await deleteStudy(meta.id);
+          // Detach before reset so an unsaved/deleted session cannot be recreated.
+          currentStudy = undefined;
+          reset();
+        } else await deleteStudy(meta.id);
+      }
+      await refreshLibrary();
+    });
+    row.append(open, actions);
+    list.append(row);
+  }
+}
+async function openStudy(set: StudySet) {
+  validateState(set.state);
+  reset();
+  const token = revision;
+  const cancelled = () => token !== revision;
+  try {
+    const qb = new Uint8Array(await set.files.questions.arrayBuffer());
+    const sb = set.files.solutions
+      ? new Uint8Array(await set.files.solutions.arrayBuffer())
+      : undefined;
+    if (cancelled()) return;
+    const qt = openPdf(qb),
+      st = sb ? openPdf(sb) : qt;
+    tasks = sb ? [qt, st] : [qt];
+    for (const task of tasks)
+      task.onPassword = () => {
+        void task.destroy();
+      };
+    const docs = await Promise.all([qt.promise, st.promise]);
+    if (cancelled()) return;
+    [qdoc, sdoc] = docs;
+    const state = set.state;
+    if (
+      state.qpages.some((p) => p.page > qdoc!.numPages) ||
+      state.sources.some((s) =>
+        s.regions.some((r) => r.page > sdoc!.numPages),
+      ) ||
+      state.matches.some((m) =>
+        m.solutions.some((s) => s.regions.some((r) => r.page > sdoc!.numPages)),
+      )
+    )
+      throw new Error("Saved source pages do not match these PDFs.");
+    qpages = state.qpages;
+    matches = state.matches;
+    sourceSolutions = state.sources;
+    fingerprint = state.fingerprint;
+    el("report-scope").textContent = state.reportScope;
+    singlePages = state.singlePages;
+    singleName = state.questionName;
+    singleFingerprint = state.singleFingerprint;
+    answerRange = state.answerRange;
+    zoom = state.zoom;
+    el<HTMLSelectElement>("zoom").value = String(zoom);
+    el<HTMLSelectElement>("solution-zoom").value = state.solutionZoom;
+    for (const name of ["question", "solution"]) {
+      const value =
+        name === "question" ? state.questionName : state.solutionName;
+      el(`${name}-name`).textContent = value;
+      el(`${name}-name`).title = value;
+    }
+    const mode = document.querySelector<HTMLInputElement>(
+      `input[name="mode"][value="${singlePages.length ? "single" : "separate"}"]`,
+    )!;
+    mode.checked = true;
+    updateMode();
+    el<HTMLInputElement>("ocr-enabled").checked = state.ocr.enabled;
+    el("ocr-options").hidden = !state.ocr.enabled;
+    el<HTMLInputElement>("ocr-question-start").value = state.ocr.first;
+    el<HTMLInputElement>("ocr-question-end").value = state.ocr.last;
+    el<HTMLSelectElement>("ocr-question-columns").value = state.ocr.questions;
+    el<HTMLSelectElement>("ocr-answer-columns").value = state.ocr.answers;
+    if (answerRange) {
+      el("range-open").hidden = false;
+      el("range-open").textContent =
+        `Answer pages ${answerRange.start}–${answerRange.end}`;
+    }
+    el<HTMLDialogElement>("library-dialog").close();
+    mountReader(false, state.position);
+    const target = el("pages").querySelector<HTMLElement>(
+      `[data-page="${state.position.page}"]`,
+    );
+    if (target)
+      qscroll.scrollTop = target.offsetTop + state.position.offset * scale;
+    el<HTMLInputElement>("page-number").value = String(state.position.page);
+    importedFiles = set.files;
+    currentStudy = {
+      set,
+      pending: Promise.resolve(),
+      generation: 0,
+      dirty: false,
+      failed: "",
+    };
+    updateSaveStatus();
+    if (set.meta.version === 0) {
+      scheduleStudy();
+      await flushStudy();
+    }
+  } catch (error) {
+    if (!cancelled()) {
+      reset();
+      el<HTMLDialogElement>("library-dialog").showModal();
+    }
+    throw error;
+  }
+}
+function showLibrary() {
+  el<HTMLDialogElement>("library-dialog").showModal();
+  void libraryAction(async () => {
+    await flushStudy();
+    await refreshLibrary();
+  });
+}
+el("library-open").onclick = showLibrary;
+el("rail-library").onclick = showLibrary;
+el("library-close").onclick = () =>
+  el<HTMLDialogElement>("library-dialog").close();
+el("library-refresh").onclick = () => void libraryAction(refreshLibrary);
+el("library-new").onclick = replaceStudy;
+el("save-retry").onclick = () => {
+  if (!currentStudy) return;
+  currentStudy.failed = "";
+  scheduleStudy();
+  void flushStudy();
+};
+el("study-export").onclick = async () => {
+  if (!currentStudy) return;
+  const button = el<HTMLButtonElement>("study-export");
+  button.disabled = true;
+  try {
+    await downloadStudy({ ...currentStudy.set, state: studyState() });
+  } catch (error) {
+    el("save-status").textContent =
+      error instanceof Error ? error.message : "Backup failed. Try again.";
+  } finally {
+    button.disabled = false;
+  }
+};
+el("backup-import").onclick = () => el<HTMLInputElement>("backup-file").click();
+el<HTMLInputElement>("backup-file").onchange = () => {
+  const input = el<HTMLInputElement>("backup-file"),
+    file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  void libraryAction(async () => {
+    const set = await importStudy(file);
+    if (!(await leaveStudy())) {
+      el("library-message").textContent = "";
+      return;
+    }
+    await openStudy(set);
+  });
+};
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) void flushStudy();
 });

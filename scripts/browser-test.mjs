@@ -43,6 +43,19 @@ try {
   const counts = await page.locator("#match-count").innerText();
   assert.equal(counts, "236 matched / 236 questions");
   checks.push("Full supplied pair: 236 matched, 0 unmatched, offline");
+  await expect(page.locator("#save-status")).toHaveText(
+    "Saved on this device",
+    { timeout: 30000 },
+  );
+  await page.reload();
+  await page.locator("#library-open").click();
+  await expect(page.locator(".library-book")).toHaveCount(1);
+  await page.locator(".library-book").click();
+  await expect(page.locator("#match-count")).toHaveText(counts);
+  await expect(page.locator("#save-status")).toHaveText("Saved on this device");
+  checks.push(
+    "Full supplied pair reopens from the library after reload without reimporting",
+  );
   const analysis = JSON.parse(await fs.readFile("tmp/analysis.json", "utf8"));
   const samples = [
     "1.1.1",
