@@ -6,4 +6,4 @@ The working integrated AI/OCR prototype is preserved at commit `bbda4ef`. Use th
 
 `package.json` here records the removed OCR dependency versions for future development; it is not part of the root install/build. Model assets and worker setup must be restored deliberately alongside any future integration. Historical dependency notices are in `THIRD_PARTY_NOTICES.txt` here.
 
-Existing library sets and version-1 backups retain saved regions and review status. The MVP can reopen, review, and export them without recognition. Answer-range editing is unavailable for saved OCR sets because it would require running recognition again. For the current public scope and next steps, use [PLAN.md](../PLAN.md).
+Existing library sets and version-1 backups retain saved regions and review status. The MVP can reopen, review, and export them without recognition. Answer-range editing is unavailable for saved OCR sets because it would require running recognition again. For the current supported features and limits, see [README.md](../README.md).

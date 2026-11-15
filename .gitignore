@@ -8,3 +8,4 @@ output/
 *.tsbuildinfo
 .env
 .env.*
+/PLAN.md
