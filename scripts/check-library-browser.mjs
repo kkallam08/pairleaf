@@ -1,3 +1,8 @@
+import {
+  choosePdf,
+  importBackup,
+  recoverFiles,
+} from "./local-file-fixtures.mjs";
 import { chromium, expect } from "@playwright/test";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -87,6 +92,7 @@ async function library() {
 }
 async function open(title) {
   await page.locator(".library-book").filter({ hasText: title }).click();
+  await recoverFiles(page);
   await expect(page.locator("#library-dialog")).not.toBeVisible();
   await saved();
 }
@@ -108,12 +114,8 @@ async function exportedMetadata(filename) {
 }
 try {
   await launch();
-  await page
-    .getByLabel("Questions PDF", { exact: true })
-    .setInputFiles(questions);
-  await page
-    .getByLabel("Solutions PDF", { exact: true })
-    .setInputFiles(answers);
+  await choosePdf(page, "questions", questions);
+  await choosePdf(page, "solutions", answers);
   await page.locator("#pair").click();
   await saved();
   await page.locator("#report-open").click();
@@ -164,7 +166,7 @@ try {
   await page.locator("#review-close").click();
   await page.locator("#report-close").click();
   checks.push(
-    "PDF pair, corrected answer, zoom and reading position survive a full Chrome restart",
+    "PDF pair, corrected answer, zoom and reading position survive a full Chrome restart with renewed file access",
   );
   const download = page.waitForEvent("download");
   await page.locator("#study-export").click();
@@ -177,7 +179,7 @@ try {
     .getByRole("button", { name: "Delete Biology practice", exact: true })
     .click();
   await expect(page.locator(".library-entry")).toHaveCount(0);
-  await page.locator("#backup-file").setInputFiles(backupPath);
+  await importBackup(page, backupPath);
   await expect(page.locator("#library-dialog")).not.toBeVisible();
   await saved();
   await expect(page.locator("#page-number")).toHaveValue("2");
@@ -206,7 +208,7 @@ try {
   page.once("dialog", (d) => d.accept());
   await page.locator("#replace").click();
   await page.getByRole("radio", { name: "Answers in this PDF" }).check();
-  await page.getByLabel("Textbook PDF").setInputFiles(book);
+  await choosePdf(page, "questions", book);
   await page.locator("#pair").click();
   await page.locator("#range-apply").click();
   await saved();
@@ -224,7 +226,15 @@ try {
       exact: true,
     })
     .click();
-  await expect(page.locator(".solution-region")).toHaveCount(2);
+  await expect(page.locator(".solution-region")).toHaveCount(3);
+  const leadingStrip = await page
+    .locator(".solution-region")
+    .last()
+    .evaluate((node) => JSON.parse(node.dataset.region));
+  expect(
+    leadingStrip.y + leadingStrip.height,
+    "The retained page edge must end before the next chapter heading",
+  ).toBeLessThan(70);
   await page.screenshot({ path: path.join(out, "reopened.png") });
   checks.push(
     "Single-PDF range correction and original multi-page answer survive reopening",
@@ -242,18 +252,26 @@ try {
     };
   });
   await page.getByRole("radio", { name: "Separate PDFs" }).check();
-  await page
-    .getByLabel("Questions PDF", { exact: true })
-    .setInputFiles(questions);
-  await page
-    .getByLabel("Solutions PDF", { exact: true })
-    .setInputFiles(answers);
+  await choosePdf(page, "questions", questions);
+  await choosePdf(page, "solutions", answers);
   await page.locator("#pair").click();
   await expect(page.locator("#save-status")).toContainText("Unsaved.");
   await page
     .getByRole("button", { name: "Show solution for 1", exact: true })
     .click();
-  await expect(page.locator(".solution-region")).toHaveCount(1);
+  // The retained confirmation points question 1 to answer 2. Its final region
+  // is the blank page edge before answer 3; it must not include that answer.
+  await expect(page.locator(".solution-region")).toHaveCount(2);
+  const interruptedRegions = await page
+    .locator(".solution-region")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => JSON.parse(node.dataset.region)),
+    );
+  expect(interruptedRegions.map((region) => region.page)).toEqual([1, 2]);
+  expect(interruptedRegions[0].y).toBeGreaterThan(350);
+  expect(interruptedRegions[1].y + interruptedRegions[1].height).toBeLessThan(
+    100,
+  );
   await library();
   await expect(page.locator(".library-entry")).toHaveCount(1);
   await page.locator("#library-close").click();
@@ -326,7 +344,7 @@ try {
   await library();
   const damaged = await fs.readFile(backupPath);
   damaged[damaged.length - 20] ^= 1;
-  await page.locator("#backup-file").setInputFiles({
+  await importBackup(page, {
     name: "damaged.pairleaf",
     mimeType: "application/octet-stream",
     buffer: damaged,
@@ -355,7 +373,7 @@ try {
   cancelledOcr.title = "Legacy selectable text";
   cancelledOcr.state.ocr.enabled = true;
   await library();
-  await page.locator("#backup-file").setInputFiles({
+  await importBackup(page, {
     name: "cancelled-ocr.pairleaf",
     mimeType: "application/octet-stream",
     buffer: backupWithMetadata(original, cancelledOcr),
@@ -398,7 +416,7 @@ try {
   legacy.state.matches[0].reason =
     "Saved source proposal; confirm before revealing.";
   await library();
-  await page.locator("#backup-file").setInputFiles({
+  await importBackup(page, {
     name: "legacy.pairleaf",
     mimeType: "application/octet-stream",
     buffer: backupWithMetadata(original, legacy),
@@ -419,9 +437,13 @@ try {
     .click();
   await expect(page.locator("#review-preview-pages")).toBeHidden();
   await page.locator("#review-preview").click();
-  await expect(
-    page.locator("#review-preview-pages [data-rendered=true]"),
-  ).toHaveCount(2);
+  const legacyPreviews = page.locator("#review-preview-pages > div");
+  await expect(legacyPreviews).toHaveCount(3);
+  // Preview canvases are lazy: check each stored region as it enters view.
+  for (const preview of await legacyPreviews.all()) {
+    await preview.scrollIntoViewIfNeeded();
+    await expect(preview).toHaveAttribute("data-rendered", "true");
+  }
   await page.locator("#review-confirm").click();
   await page.locator("#report-close").click();
   await saved();
@@ -436,6 +458,9 @@ try {
   expect(preserved.state.ocr).toEqual({ ...legacy.state.ocr, enabled: true });
   expect(preserved.hashes).toEqual(legacy.hashes);
   expect(preserved.state.matches[0].confirmed).toBe(true);
+  expect(preserved.state.sources.map((source) => source.regions)).toEqual(
+    legacy.state.sources.map((source) => source.regions),
+  );
   checks.push(
     "Legacy recognition backups reopen without engines, retain source regions and settings, and allow local confirmation",
   );

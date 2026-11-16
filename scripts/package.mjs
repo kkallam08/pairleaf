@@ -6,6 +6,7 @@ for (const dir of ["cmaps", "standard_fonts", "wasm"]) {
 }
 await fs.copyFile("node_modules/pdfjs-dist/LICENSE", "dist/PDFJS-LICENSE.txt");
 await fs.copyFile("THIRD_PARTY_NOTICES.txt", "dist/THIRD_PARTY_NOTICES.txt");
+await fs.copyFile("site/dist/index.html", "dist/privacy.html");
 console.log(
   "Loadable extension: dist/ (worker, fonts, CMaps and WASM included).",
 );

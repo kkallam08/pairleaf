@@ -1,0 +1,56 @@
+{
+  "files": {
+    "bbc-survival.pdf": {
+      "url": "https://downloads.bbc.co.uk/worldservice/learningenglish/quiznet/pdfs/26_phrases_survival_english.pdf",
+      "sha256": "9ed9c3bcd6435c9b979959dd877e1b8927e5351da7fdd2792262eda98c40f687"
+    },
+    "bbc-habits.pdf": {
+      "url": "https://downloads.bbc.co.uk/rmhttp/worldservice/learningenglish/quiznet/pdfs/qnet_250_habits.pdf",
+      "sha256": "768c2e186b33ce7a1ca11bd3f2a0196ff89f3489803926e47ade63d5125f13e9"
+    },
+    "mit-biology-questions.pdf": {
+      "url": "https://ocw.mit.edu/courses/7-013-introductory-biology-spring-2013/e51ba4283a1916cc6ad7d1b36d7c5017_MIT7_013S12_Recitation_2.pdf",
+      "sha256": "2802ea2684635b34fb28340ee69cde48c5610eb8d69e9a082a0ed855fa5b90fb"
+    },
+    "mit-biology-solutions.pdf": {
+      "url": "https://ocw.mit.edu/courses/7-013-introductory-biology-spring-2013/9219da74e4d9bc12a99ff512b0164058_MIT7_013S12_RecitatSol_2.pdf",
+      "sha256": "2f00367ed850f2d5af4425ab12eb9145a39b0ced6054e427951f41014a72e2eb"
+    }
+  },
+  "cases": [
+    {
+      "name": "bbc-survival",
+      "title": "BBC Learning English: Survival English",
+      "questions": "bbc-survival.pdf",
+      "answerRange": [3, 3],
+      "questionPages": [2, 2, 2, 2, 2, 2],
+      "answerPages": [[3], [3], [3], [3], [3], [3]]
+    },
+    {
+      "name": "bbc-habits",
+      "title": "BBC Learning English: Habits",
+      "questions": "bbc-habits.pdf",
+      "answerRange": [2, 3],
+      "knownLeadingStrip": {
+        "question": "5",
+        "page": 3,
+        "beforeQuestion": "6"
+      },
+      "questionPages": [1, 1, 1, 1, 1, 1],
+      "answerPages": [[2], [2], [2], [2], [2], [3]]
+    },
+    {
+      "name": "mit-biology",
+      "title": "MIT 7.013 Introductory Biology: Recitation 2",
+      "questions": "mit-biology-questions.pdf",
+      "solutions": "mit-biology-solutions.pdf",
+      "questionPages": [1, 1, 2, 2, 2, 2],
+      "answerPages": [[1], [1, 2], [2], [2], [2], [2, 3]],
+      "knownExtraPage": {
+        "question": "6",
+        "page": 4,
+        "description": "Publisher attribution page follows the final answer; the current parser includes it."
+      }
+    }
+  ]
+}

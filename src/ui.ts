@@ -41,7 +41,7 @@ export const markup = `
           <label class="mode-option"><input type="radio" name="mode" value="single"><span>Answers in this PDF</span></label>
         </fieldset>
         <div class="file-grid" id="file-grid">${fileField("questions", "Questions PDF")}${fileField("solutions", "Solutions PDF")}</div>
-        <div class="pair-actions"><p class="quiet">Selectable text with numbered questions, such as <strong>1. or 1.1.1</strong>.</p><button id="cancel" type="button" hidden>Cancel</button><button id="pair" class="primary" type="submit">Pair PDFs</button></div>
+        <div class="pair-actions"><p class="quiet">Selectable text with numbered questions, such as <strong>1. or 1.1.1</strong>.<br>PDFs stay in your folders. Progress is saved in this browser. <a href="privacy.html" target="_blank" rel="noopener">Privacy</a></p><button id="cancel" type="button" hidden>Cancel</button><button id="pair" class="primary" type="submit">Pair PDFs</button></div>
       </form>
       <div id="progress-wrap" hidden><progress id="progress" max="100" value="0"></progress><p id="progress-text" role="status" aria-live="polite"></p></div>
       <p id="error" role="alert" hidden></p>

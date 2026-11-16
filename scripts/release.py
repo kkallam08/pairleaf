@@ -33,7 +33,7 @@ def collect(directory, prefix=""):
     result = []
     for item in sorted((root / directory).rglob("*")):
         relative = item.relative_to(root / directory)
-        if "node_modules" in relative.parts:
+        if "node_modules" in relative.parts or "dist" in relative.parts:
             continue
         assert not item.is_symlink(), f"Symlinks are not release inputs: {item}"
         if item.is_file():
@@ -63,7 +63,7 @@ def audit(archive_path, expected, extension):
 source_files = [".gitignore", "package.json", "package-lock.json", "tsconfig.json",
                 "vite.config.ts", "index.html", "README.md", "RESULTS.md",
                 "PRIVACY.md", "CHANGELOG.md", "THIRD_PARTY_NOTICES.txt"]
-source_dirs = ["src", "public", "tests", "scripts", "server", "experiments", "docs"]
+source_dirs = ["src", "public", "tests", "scripts", "server", "experiments", "docs", "site", "store"]
 source_entries = [(root / name, "paired-pdf-extension/" + name) for name in source_files]
 for directory in source_dirs:
     source_entries.extend(collect(directory, "paired-pdf-extension/" + directory + "/"))

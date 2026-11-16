@@ -5,15 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5181 --strictPort",
-    "build": "tsc --noEmit && vite build && node scripts/package.mjs && node scripts/check-public-build.mjs",
+    "build": "node scripts/build-privacy-page.mjs && tsc --noEmit && vite build && node scripts/package.mjs && node scripts/check-public-build.mjs",
     "test": "vitest run",
     "check": "npm run test && npm run build",
     "inspect": "tsx scripts/inspect.ts",
     "test:browser": "node scripts/browser-test.mjs",
     "test:interface": "node scripts/interface-test.mjs",
     "test:single": "node scripts/check-single-browser.mjs",
+    "test:files": "node scripts/check-local-files-browser.mjs",
     "test:library": "node scripts/check-library-browser.mjs",
-    "test:compat": "node scripts/check-compat-browser.mjs"
+    "test:compat": "node scripts/check-compat-browser.mjs",
+    "test:minimum": "node scripts/check-minimum-browser.mjs",
+    "test:documents": "node scripts/check-document-benchmark.mjs",
+    "assets:icons": "node scripts/generate-icons.mjs",
+    "assets:store": "node scripts/capture-store-screenshots.mjs",
+    "check:store": "node scripts/check-store-assets.mjs",
+    "build:privacy": "node scripts/build-privacy-page.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "6.5.438"

@@ -1,11 +1,23 @@
 import "./style.css";
 import { markup, libraryMarkup } from "./ui";
+import { locateFiles } from "./file-dialog";
+import {
+  reference,
+  pickLocalFile,
+  pickerAvailable,
+  cancelledPicker,
+  type FileLinks,
+  type LocalFileHandle,
+} from "./local-files";
 import {
   listStudies,
   readStudy,
   saveStudy,
   renameStudy,
   deleteStudy,
+  LocalFilesError,
+  prepareLinks,
+  replaceLinks,
   type StudySet,
   type StudyState,
 } from "./library";
@@ -88,6 +100,7 @@ function reset() {
   flushStudy();
   currentStudy = undefined;
   importedFiles = undefined;
+  importedLinks = undefined;
   revision++;
   singlePages = [];
   singleName = "";
@@ -163,6 +176,20 @@ async function pair(event: SubmitEvent) {
     ]);
     if (cancelled()) return;
     importedFiles = { questions: qfile, solutions: single ? undefined : sfile };
+    importedLinks = {
+      kind: "pdfs",
+      questions: await reference(qfile, qfile.name, selectedHandles.questions),
+      ...(single
+        ? {}
+        : {
+            solutions: await reference(
+              sfile!,
+              sfile!.name,
+              selectedHandles.solutions,
+            ),
+          }),
+    };
+    if (cancelled()) return;
     fingerprint = await pairFingerprint(qb, sb ?? qb);
     if (cancelled()) return;
     const qt = openPdf(new Uint8Array(qb)),
@@ -274,7 +301,7 @@ function finishPair(
 function mountReader(jumpToFirst = true, anchor = position()) {
   const ready = matches.filter((m) => m.status === "matched").length;
   el("match-count").textContent =
-    `${ready} matched / ${matches.length} questions`;
+    `${ready} matched / ${matches.length} ${matches.length === 1 ? "question" : "questions"}`;
   const counts = ["suggested", "missing", "ambiguous", "unsafe"]
     .map(
       (status) =>
@@ -523,7 +550,7 @@ function refreshMatches() {
   scheduleStudy();
   const ready = matches.filter((m) => m.status === "matched").length;
   el("match-count").textContent =
-    `${ready} matched / ${matches.length} questions`;
+    `${ready} matched / ${matches.length} ${matches.length === 1 ? "question" : "questions"}`;
   el("report-summary").textContent =
     `${ready} matched. ${matches.length - ready} need review.`;
   closeSolution();
@@ -664,7 +691,8 @@ function filterQuestions() {
   }
   list.hidden = false;
   finder.setAttribute("aria-expanded", "true");
-  el("find-status").textContent = `${finderMatches.length} questions found`;
+  el("find-status").textContent =
+    `${finderMatches.length} ${finderMatches.length === 1 ? "question" : "questions"} found`;
 }
 finder.oninput = filterQuestions;
 finder.onfocus = filterQuestions;
@@ -831,6 +859,7 @@ el<HTMLFormElement>("range-form").onsubmit = (event) => {
     el("range-error").hidden = false;
   }
 };
+const selectedHandles: Record<string, LocalFileHandle | undefined> = {};
 function updateFiles() {
   for (const name of ["questions", "solutions"]) {
     const file = el<HTMLInputElement>(`${name}-file`).files?.[0];
@@ -846,8 +875,28 @@ for (const name of ["questions", "solutions"]) {
   const input = el<HTMLInputElement>(`${name}-file`);
   const drop = el(`${name}-drop`);
   input.onchange = () => {
+    delete selectedHandles[name];
     updateFiles();
     el("error").hidden = true;
+  };
+  input.onclick = async (event) => {
+    if (!pickerAvailable()) return;
+    event.preventDefault();
+    try {
+      const [handle] = await pickLocalFile();
+      const transfer = new DataTransfer();
+      transfer.items.add(await handle.getFile());
+      if (input.disabled) return;
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change"));
+      selectedHandles[name] = handle;
+    } catch (error) {
+      if (!cancelledPicker(error)) {
+        el("error").textContent =
+          error instanceof Error ? error.message : "Could not open this file.";
+        el("error").hidden = false;
+      }
+    }
   };
   drop.ondragover = (event) => {
     event.preventDefault();
@@ -857,7 +906,7 @@ for (const name of ["questions", "solutions"]) {
     if (!drop.contains(event.relatedTarget as Node))
       drop.classList.remove("dragging");
   };
-  drop.ondrop = (event) => {
+  drop.ondrop = async (event) => {
     event.preventDefault();
     drop.classList.remove("dragging");
     if (input.disabled) return;
@@ -867,8 +916,20 @@ for (const name of ["questions", "solutions"]) {
       el("error").hidden = false;
       return;
     }
-    input.files = files;
+    // Capture the handle and File while the browser's drop access is active.
+    const item = event.dataTransfer?.items[0] as
+      | (DataTransferItem & {
+          getAsFileSystemHandle?: () => Promise<LocalFileHandle | null>;
+        })
+      | undefined;
+    const handle = item?.getAsFileSystemHandle?.();
+    const transfer = new DataTransfer();
+    transfer.items.add(files[0]);
+    const local = await handle?.catch(() => null);
+    if (input.disabled) return;
+    input.files = transfer.files;
     input.dispatchEvent(new Event("change"));
+    selectedHandles[name] = local ?? undefined;
   };
 }
 el("rail-files").onclick = () => {
@@ -888,6 +949,8 @@ async function replaceStudy() {
   reset();
   el<HTMLInputElement>("questions-file").value = "";
   el<HTMLInputElement>("solutions-file").value = "";
+  delete selectedHandles.questions;
+  delete selectedHandles.solutions;
   updateFiles();
   el("questions-file").focus();
 }
@@ -966,6 +1029,7 @@ interface StudySession {
 }
 let currentStudy: StudySession | undefined;
 let importedFiles: StudySet["files"] | undefined;
+let importedLinks: FileLinks | undefined;
 let studyTimer: ReturnType<typeof setTimeout> | undefined;
 function studyState(): StudyState {
   return structuredClone({
@@ -1029,6 +1093,7 @@ function startStudy() {
         },
         state: studyState(),
         files: importedFiles,
+        links: importedLinks,
       },
       pending: Promise.resolve(),
       generation: 0,
@@ -1114,6 +1179,14 @@ async function libraryAction(action: () => Promise<void>) {
       error instanceof Error
         ? error.message
         : "Could not access the library. Try again.";
+    if (error instanceof LocalFilesError) {
+      try {
+        await linkStudy(error.studyId);
+      } catch (cause) {
+        el("library-message").textContent =
+          cause instanceof Error ? cause.message : "Could not link files.";
+      }
+    }
   } finally {
     libraryBusy = false;
     for (const button of el(
@@ -1128,7 +1201,7 @@ async function refreshLibrary() {
   list.replaceChildren();
   el("library-message").textContent = entries.length
     ? ""
-    : "Your saved PDFs will appear here.";
+    : "Your studies will appear here.";
   for (const meta of entries) {
     const row = document.createElement("article");
     row.className = "library-entry";
@@ -1137,7 +1210,7 @@ async function refreshLibrary() {
     const title = document.createElement("strong");
     title.textContent = meta.title;
     const detail = document.createElement("span");
-    detail.textContent = `${meta.single ? "One PDF" : "PDF pair"} · ${meta.questions} questions`;
+    detail.textContent = `${meta.single ? "One PDF" : "PDF pair"} · ${meta.questions} ${meta.questions === 1 ? "question" : "questions"}`;
     open.append(title, detail);
     open.onclick = () =>
       void libraryAction(async () => {
@@ -1156,6 +1229,7 @@ async function refreshLibrary() {
       button.onclick = () => void libraryAction(action);
       actions.append(button);
     };
+    add("Locate files", () => linkStudy(meta.id));
     add("Rename", async () => {
       const title = prompt("Study set name", meta.title)?.trim();
       if (title) {
@@ -1179,7 +1253,9 @@ async function refreshLibrary() {
     });
     add("Delete", async () => {
       if (
-        confirm(`Delete “${meta.title}” and its saved PDFs from this device?`)
+        confirm(
+          `Delete “${meta.title}” from this library? Original files and exported backups will stay on your device.`,
+        )
       ) {
         if (currentStudy?.set.meta.id === meta.id) {
           await flushStudy();
@@ -1272,6 +1348,7 @@ async function openStudy(set: StudySet) {
       qscroll.scrollTop = target.offsetTop + state.position.offset * scale;
     el<HTMLInputElement>("page-number").value = String(state.position.page);
     importedFiles = set.files;
+    importedLinks = set.links;
     currentStudy = {
       set,
       pending: Promise.resolve(),
@@ -1329,19 +1406,57 @@ el("study-export").onclick = async () => {
     button.disabled = false;
   }
 };
-el("backup-import").onclick = () => el<HTMLInputElement>("backup-file").click();
+async function linkStudy(id: string) {
+  await flushStudy();
+  if (currentStudy?.set.meta.id === id && currentStudy.failed)
+    throw new Error(
+      "Export your unsaved session before locating files. Reopen the library afterward.",
+    );
+  const prepared = await prepareLinks(id);
+  const links = await locateFiles(prepared.links, prepared.legacy);
+  if (!links || !(await leaveStudy())) return;
+  await replaceLinks(id, prepared.version, links);
+  // Keep the active session's version current even if a later file read fails.
+  if (currentStudy?.set.meta.id === id) {
+    currentStudy.set.meta.version = prepared.version + 1;
+    currentStudy.set.links = links;
+  }
+  await openStudy(await readStudy(id));
+}
+async function openBackup(file: File, handle?: LocalFileHandle) {
+  const set = await importStudy(file);
+  set.links = {
+    kind: "backup",
+    backup: await reference(file, file.name, handle),
+  };
+  if (!(await leaveStudy())) {
+    el("library-message").textContent = "";
+    return;
+  }
+  await openStudy(set);
+}
+el("backup-import").onclick = () => {
+  if (!pickerAvailable()) {
+    el<HTMLInputElement>("backup-file").click();
+    return;
+  }
+  void libraryAction(async () => {
+    try {
+      const [handle] = await pickLocalFile(true);
+      await openBackup(await handle.getFile(), handle);
+    } catch (error) {
+      if (!cancelledPicker(error)) throw error;
+      el("library-message").textContent = "";
+    }
+  });
+};
 el<HTMLInputElement>("backup-file").onchange = () => {
   const input = el<HTMLInputElement>("backup-file"),
     file = input.files?.[0];
   input.value = "";
   if (!file) return;
   void libraryAction(async () => {
-    const set = await importStudy(file);
-    if (!(await leaveStudy())) {
-      el("library-message").textContent = "";
-      return;
-    }
-    await openStudy(set);
+    await openBackup(file);
   });
 };
 document.addEventListener("visibilitychange", () => {

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="How Pairleaf handles your PDFs, local study library, backups, and saved match choices."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src '{{styleHash}}'; img-src data:; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Privacy | Pairleaf</title>
+    <link rel="icon" href="{{icon}}" type="image/svg+xml" />
+    <style>{{style}}</style>
+    {{canonical}}
+  </head>
+  <body>
+    <a class="skip-link" href="#policy">Skip to privacy policy</a>
+    <header class="masthead">
+      <a class="brand" href="#top" aria-label="Pairleaf, top of page">
+        <img src="{{icon}}" width="28" height="32" alt="" />
+        <span>Pairleaf</span>
+      </a>
+    </header>
+    <main id="top">
+      <article id="policy" aria-labelledby="policy-title">
+        {{policy}}
+      </article>
+    </main>
+  </body>
+</html>
