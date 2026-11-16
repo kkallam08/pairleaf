@@ -92,12 +92,20 @@ try {
       exact: true,
     })
     .click();
-  await expect(page.locator(".solution-region")).toHaveCount(2);
+  await expect(page.locator(".solution-region")).toHaveCount(3);
   assert.deepEqual(
     await page
       .locator(".solution-region")
       .evaluateAll((nodes) => nodes.map((n) => n.dataset.page)),
-    ["3", "4"],
+    ["3", "4", "5"],
+  );
+  const leadingStrip = await page
+    .locator(".solution-region")
+    .last()
+    .evaluate((node) => JSON.parse(node.dataset.region));
+  assert.ok(
+    leadingStrip.y + leadingStrip.height < 70,
+    "The retained page edge must end before the next chapter heading",
   );
   await expect(
     page.locator(".solution-crop[data-rendered=true]").first(),
@@ -151,7 +159,7 @@ try {
   await page.locator("#range-end").fill("2");
   await page.locator("#range-apply").click();
   await expect(page.locator("#match-count")).toHaveText(
-    "1 matched / 1 questions",
+    "1 matched / 1 question",
   );
   await page.locator("#replace").click();
   await openBook();

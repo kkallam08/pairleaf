@@ -14,7 +14,7 @@ _The screenshot uses invented practice material._
 - Reveals original solution pages beside the question, including answers that continue across pages.
 - Detects a textbook's answer section and lets you correct its page range.
 - Lets you preview and correct detected matches.
-- Saves PDFs, match choices, reading position, and zoom in a local study library.
+- Keeps your PDFs in their folders and saves match choices, reading position, and zoom in a local study library.
 - Exports and imports complete study sets as `.pairleaf` backups.
 
 Reading and matching work offline. No account, API key, or helper process is needed.
@@ -38,7 +38,10 @@ To update an unpacked installation, export your study sets first, replace the co
 
 **Answers in this PDF:** select the textbook and choose **Open PDF**. Confirm the detected answer pages, or enter the first and last pages yourself. Use PDF page numbers, which may differ from the printed numbers. Preview the boundary pages if needed, then choose **Use pages**. You can correct the range later with **Answer pages**.
 
+Your original PDFs stay in their folders. Reopen a study from **Library**; Chrome may ask for file access again. Use **Locate files** if a PDF has moved or access has expired. Pairleaf checks the file contents before restoring progress. Changed PDFs need a new study.
 
-[Development](docs/DEVELOPMENT.md) · [Release notes](CHANGELOG.md) · [Report an issue](https://github.com/kkallam08/pairleaf/issues)
+**Export study set** saves a complete `.pairleaf` backup containing the PDFs and progress. An imported study uses that backup file, so keep it in place. Later progress stays in Chrome until you export again. Export before clearing extension data or switching installations. Older saved PDF copies can be replaced with verified file links using **Locate files**.
+
+[Supported PDFs](docs/SUPPORTED_PDFS.md) · [Privacy](https://pairleaf-privacy.swoony-bean-3091.chatgpt.site/) · [Development](docs/DEVELOPMENT.md) · [Release notes](CHANGELOG.md) · [Report an issue](https://github.com/kkallam08/pairleaf/issues)
 
 When reporting a document problem, describe the layout and affected question numbers. Share a minimal example only if you have permission to share it. PDF rendering uses PDF.js; dependency attribution is in [Third-party notices](THIRD_PARTY_NOTICES.txt).

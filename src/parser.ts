@@ -14,8 +14,68 @@ function lineAt(page: PageText, span: TextSpan) {
     .filter((i) => Math.abs(i.baseline - span.baseline) < 2.5)
     .sort((a, b) => a.x - b.x);
 }
-function isBody(page: PageText, item: TextSpan) {
-  return item.y >= page.height * 0.055 && item.bottom <= page.height * 0.95;
+function isBody(page: PageText, item: TextSpan, top = page.height * 0.055) {
+  return item.y >= top && item.bottom <= page.height * 0.95;
+}
+const lineText = (line: TextSpan[]) =>
+  line
+    .map((i) => i.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+function bodyTops(pages: PageText[], bodySize: number) {
+  const marginLines = new Map<string, Set<number>>();
+  for (const p of pages) {
+    const edge = p.height * 0.055;
+    for (const i of p.items.filter((i) => i.y < edge && i.bottom > edge)) {
+      const key = lineText(lineAt(p, i));
+      const occurrences = marginLines.get(key) ?? new Set<number>();
+      occurrences.add(p.page);
+      marginLines.set(key, occurrences);
+    }
+  }
+  return new Map(
+    pages.map((p) => {
+      const edge = p.height * 0.055;
+      let top = edge;
+      for (const i of p.items.filter((i) => i.y < edge && i.bottom > edge)) {
+        const line = lineAt(p, i);
+        const text = lineText(line);
+        const left = Math.min(...line.map((j) => j.x));
+        // Expand only for body-sized prose that flows into the next body line.
+        // A repeated margin line is still a running header, not a question.
+        if (
+          text.length < 20 ||
+          (marginLines.get(text)?.size ?? 0) > 1 ||
+          left > p.width * 0.35 ||
+          i.height < bodySize * 0.85 ||
+          i.height > bodySize * 1.15 ||
+          !p.items.some(
+            (next) =>
+              isBody(p, next) &&
+              next.text.length > 15 &&
+              next.baseline > i.baseline + 2.5 &&
+              next.baseline - i.baseline <= bodySize * 1.8 &&
+              Math.abs(next.x - left) <= bodySize * 2 &&
+              next.height >= bodySize * 0.85 &&
+              next.height <= bodySize * 1.15,
+          )
+        )
+          continue;
+        const firstY = Math.min(...line.map((j) => j.y));
+        const previousBottom = Math.max(
+          0,
+          ...p.items.filter((j) => j.bottom <= firstY).map((j) => j.bottom),
+        );
+        const padding = Math.min(
+          Math.max(7, i.height * 0.65),
+          (firstY - previousBottom) / 2,
+        );
+        top = Math.min(top, firstY - padding);
+      }
+      return [p.page, top];
+    }),
+  );
 }
 function isContents(page: PageText) {
   return (
@@ -25,17 +85,17 @@ function isContents(page: PageText) {
   );
 }
 /** Find the whitespace just above a heading, expanding upward around tall math glyphs. */
-function cropTop(page: PageText, span: TextSpan) {
+function cropTop(page: PageText, span: TextSpan, bodyTop: number) {
   // TeX accent fonts can report zero ascent/descent. Leave room for vector arrows
   // above the normal text box, then expand around taller matrix delimiters.
   let cut = span.y - Math.max(7, span.height * 0.65);
-  const body = page.items.filter((i) => isBody(page, i));
+  const body = page.items.filter((i) => isBody(page, i, bodyTop));
   for (let pass = 0; pass < 20; pass++) {
     const crossing = body.filter((i) => i.y < cut && i.bottom > cut);
     if (!crossing.length) break;
     const top = Math.min(...crossing.map((i) => i.y));
     const previousBottom = Math.max(
-      page.height * 0.055,
+      bodyTop,
       ...body.filter((i) => i.bottom <= top).map((i) => i.bottom),
     );
     // A fixed pad can cross a narrow gap and pull in the preceding question.
@@ -45,7 +105,7 @@ function cropTop(page: PageText, span: TextSpan) {
     if (next === cut) break;
     cut = next;
   }
-  return Math.max(page.height * 0.055, cut);
+  return Math.max(bodyTop, cut);
 }
 interface Marker {
   page: number;
@@ -61,15 +121,17 @@ export function analyze(
   role: "questions" | "solutions",
 ): Analysis {
   const pagesByNumber = new Map(pages.map((page) => [page.page, page]));
-  const dotted = pages.some((p) =>
-    p.items.some((i) => isBody(p, i) && identifier.test(i.text.trim())),
-  );
   const bodySize = median(
     pages.flatMap((p) =>
       p.items
         .filter((i) => i.text.length > 20 && isBody(p, i))
         .map((i) => i.height),
     ),
+  );
+  const tops = bodyTops(pages, bodySize);
+  const inBody = (p: PageText, i: TextSpan) => isBody(p, i, tops.get(p.page)!);
+  const dotted = pages.some((p) =>
+    p.items.some((i) => inBody(p, i) && identifier.test(i.text.trim())),
   );
   const candidates: { p: PageText; i: TextSpan; id: string }[] = [];
   const markers: Marker[] = [];
@@ -90,7 +152,7 @@ export function analyze(
           chapter = label;
         } else context = chapter ? `${chapter} / ${label}` : label;
       }
-      if (!isBody(p, i)) continue;
+      if (!inBody(p, i)) continue;
       const problemSection = i.text.match(
         /^(?:Section\s+)?(\d+(?:\.\d+)+)\s+(?:Problems|Exercises)\b/i,
       );
@@ -103,7 +165,7 @@ export function analyze(
         markers.push({
           page: p.page,
           y: i.y,
-          top: cropTop(p, i),
+          top: cropTop(p, i, tops.get(p.page)!),
           section: problemSection?.[1],
           problems: !!problemSection,
         });
@@ -153,7 +215,13 @@ export function analyze(
       )
         continue;
     }
-    headings.push({ id, page: p.page, x: i.x, y: i.y, top: cropTop(p, i) });
+    headings.push({
+      id,
+      page: p.page,
+      x: i.x,
+      y: i.y,
+      top: cropTop(p, i, tops.get(p.page)!),
+    });
   }
   headings.sort((a, b) => a.page - b.page || a.y - b.y);
   const warnings: string[] = [];
@@ -203,20 +271,19 @@ export function analyze(
               solution.issue = "A page could not be read.";
               break;
             }
-            const start = n === h.page ? h.top : p.height * 0.055;
-            const stop = end && n === end.page ? end.top : p.height * 0.95;
+            // Without an explicit neighboring heading, preserve the page edge:
+            // diagrams can extend beyond text margins without extracted glyphs.
+            // Running headers/footers are preferable to clipped source content.
+            const start = n === h.page ? h.top : 0;
+            const stop = end && n === end.page ? end.top : p.height;
             if (stop <= start) continue;
             if (p.textlessGraphics) {
               solution.issue =
                 "A textless graphic page interrupts this solution. Its boundaries need review in the source PDF.";
               break;
             }
-            if (
-              !p.items.some(
-                (i) => isBody(p, i) && i.bottom > start && i.y < stop,
-              )
-            )
-              continue;
+            // A bounded region may contain drawing operators but no text. Keep
+            // it even when that also retains a blank strip before the next label.
             // Trim horizontal paper margins only; all diagrams/equations within the body stay original.
             solution.regions.push({
               page: n,

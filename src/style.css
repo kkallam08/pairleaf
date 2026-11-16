@@ -1090,3 +1090,24 @@ dialog::backdrop {
   flex: 1;
   min-height: 0;
 }
+
+.local-files-dialog {
+  width: min(560px, calc(100vw - 24px));
+}
+.local-file-row {
+  padding: 12px 0;
+  border-bottom: 1px solid #d7d2e0;
+}
+.local-file-row p {
+  overflow-wrap: anywhere;
+}
+.local-file-row button {
+  margin: 0 8px 8px 0;
+}
+.local-files-error {
+  color: #9a3046;
+  overflow-wrap: anywhere;
+}
+.library-entry-actions {
+  flex-wrap: wrap;
+}

@@ -21,10 +21,17 @@ After building, use installed Google Chrome for the self-contained browser suite
 npm run test:interface
 npm run test:single
 npm run test:library
+npm run test:files
 npm run test:compat
 ```
 
 They use invented PDFs, isolated profiles, and offline extension sessions. Reports and screenshots go to ignored `output/`; disposable profiles go to `tmp/`. The compatibility check removes selected newer built-ins from current Chrome. It does not replace testing the declared minimum browser version.
+
+`npm run test:files` checks real external file handles, changed/missing files, cancellation, legacy PDF-copy migration, rollback, stale-tab protection, and portable backups. Browser suites grant file access with trusted CDP file drops and substitute only the OS chooser with those actual handles. Native chooser/permission prompt interaction is checked separately by hand; the tests do not claim to automate that OS interface. The latest owner-reported manual result is recorded in [Validation results](../RESULTS.md).
+
+`npm run test:minimum` runs the real minimum browser major from the manifest. Point `PAIRLEAF_CHROME_PATH` at a matching official [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) executable, or use the script's default local Chrome 130 test-binary location. The check uses an isolated offline profile and verifies reading, review, library restart, backups, and single-PDF range correction. It does not change the installed browser or its profile.
+
+`npm run test:documents -- --download` downloads the four public BBC/MIT PDFs identified in `tests/document-benchmark.json` into ignored `tmp/store-benchmark/`, verifies their SHA-256 checksums, and checks 18 expected source assignments. Subsequent runs need no download and run offline. These PDFs and their rendered crops remain outside source and release archives. A checksum change requires reviewing the source document and expected locations before updating the fixture. Inspect the resulting crop PNGs in `output/store-benchmark/` to assess completeness; counts alone are insufficient.
 
 The course regression is specific to the previously checked MATH115F26 course-note and end-of-section solution PDFs, which are not distributed here. With authorized local copies, regenerate the extraction and analysis before running it:
 
@@ -46,7 +53,7 @@ python scripts/release.py
 
 The script rebuilds and audits `dist`, checks package/manifest versions, verifies both ZIPs against their inputs, and replaces the local candidates under `release/`. It does not publish them. The extension ZIP contains the runnable build; the source ZIP includes development and experimental modules.
 
-Extract the extension ZIP to a persistent folder and load it in Chrome. For automated verification of an extracted candidate, the library and compatibility scripts accept its absolute path in `PAIRLEAF_EXTENSION_DIR`. Test the final candidate again after release assets change.
+Extract the extension ZIP to a persistent folder and load it in Chrome. For automated verification of an extracted candidate, the library, local-files, compatibility, minimum-browser, document-benchmark, and store-capture scripts accept its absolute path in `PAIRLEAF_EXTENSION_DIR`. Test the final candidate again after release assets change.
 
 Private documents, backups, environment files, dependencies, usage records, and local test evidence stay outside source/release archives. The release script enforces an explicit source list and excludes private file types and directories. Preserve dependency notices when changing packaged assets.
 
@@ -58,13 +65,14 @@ Private documents, backups, environment files, dependencies, usage records, and 
 | Textbook answer range                         | `src/single.ts`                                  |
 | Confirmation and document fingerprints        | `src/review.ts`                                  |
 | Library transactions and backup validation    | `src/library.ts`, `src/backup.ts`                |
+| File access, hashes, and recovery dialog      | `src/local-files.ts`, `src/file-dialog.ts`       |
 | Reader integration and rendering              | `src/main.ts`, `src/rendering.ts`                |
 | Controls and presentation                     | `src/ui.ts`, `src/style.css`                     |
 | Extension entry and policy                    | `public/background.js`, `public/manifest.json`   |
 
 PDF.js uses matching legacy main and worker builds. Keep those versions aligned. Its worker, fonts, CMaps, and image-decoding WASM are packaged locally.
 
-Library updates use optimistic versions to prevent one tab overwriting changes made by another. Files, metadata, and reader state commit atomically. Older records are normalized on open; recognized OCR provenance comes from the fingerprint because a cancelled settings edit could leave an incorrect checkbox flag. Stored OCR regions remain readable, but their ranges cannot be recomputed by the current build. Reimport original PDFs to apply newer parsing rules to an older study set.
+Library updates use optimistic versions to prevent one tab overwriting changes made by another. File references, metadata, and reader state commit atomically. New records store a tagged PDF-reference or backup-reference object in the existing `files` store; legacy untagged Blob records still load. Migration verifies every selected file against the saved bytes and atomically replaces copies without changing state. Failed or stale migrations leave old records intact. Each reopen verifies file size and SHA-256 before applying saved answers. Autosaves do not rewrite files or rehash PDFs. Imported backups provide PDF bytes while the current state stays in IndexedDB. No filesystem write or directory permission is requested. Older records are normalized on open; recognized OCR provenance comes from the fingerprint because a cancelled settings edit could leave an incorrect checkbox flag. Stored OCR regions remain readable, but their ranges cannot be recomputed by the current build. Reimport original PDFs to apply newer parsing rules to an older study set.
 
 Deferred engines and their revision/compatibility notes live in [Recognition experiments](../experiments/README.md). Historical AI/OCR browser scripts target that prototype, not the current interface. They are not part of the local release validation flow.
 
@@ -73,3 +81,9 @@ Deferred engines and their revision/compatibility notes live in [Recognition exp
 Keep controls concise and in sentence case. Give the PDFs most of the screen; preserve the white pages, violet margin markers, and compact reading controls. Original interaction references: [Kibo UI](https://www.kibo-ui.com/components/avatar-stack) and [shadcn scroll-fade](https://ui.shadcn.com/docs/utils/scroll-fade).
 
 The README screenshot must show the actual build with shareable example documents. After building, run `node scripts/capture-screenshot.mjs` to regenerate it, then inspect the image before publishing.
+
+## Store materials and privacy page
+
+`npm run assets:icons` rasterizes the paired-page SVG at the manifest and store sizes. `npm run assets:store` captures the actual extension at 1280×800 using invented material and writes shareable reviewer examples to ignored `output/store/fixtures/`. Inspect the images, then run `npm run check:store` to check dimensions, RGB screenshot format, and matching icon bytes.
+
+The build generates a self-contained privacy page from `PRIVACY.md` and bundles it as `dist/privacy.html`. The same page is ready for static hosting in `site/dist/`; no host or live URL is created by building. See [Privacy page preparation](../site/README.md), [store copy](../store/LISTING.md), and [submission details](../store/SUBMISSION.md). The source archive includes their source files and store assets, while generated site output is excluded.

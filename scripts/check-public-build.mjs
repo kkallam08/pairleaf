@@ -6,6 +6,22 @@ const manifest = JSON.parse(await fs.readFile("dist/manifest.json", "utf8"));
 assert.equal(manifest.manifest_version, 3);
 assert.deepEqual(manifest.host_permissions ?? [], []);
 assert.deepEqual(manifest.optional_host_permissions ?? [], []);
+for (const size of [16, 32, 48, 128]) {
+  const iconPath = manifest.icons?.[size];
+  assert.equal(iconPath, `icons/icon-${size}.png`);
+  const png = await fs.readFile(path.join("dist", iconPath));
+  assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal(png.readUInt32BE(16), size);
+  assert.equal(png.readUInt32BE(20), size);
+}
+for (const size of [16, 32])
+  assert.equal(manifest.action.default_icon[size], manifest.icons[size]);
+const privacy = await fs.readFile("dist/privacy.html", "utf8");
+assert.equal(privacy, await fs.readFile("site/dist/index.html", "utf8"));
+assert.doesNotMatch(
+  privacy,
+  /<script\b|<link\b[^>]*rel=["']stylesheet|\bsrc=["']https?:/i,
+);
 assert.match(
   manifest.content_security_policy.extension_pages,
   /connect-src 'self';/,

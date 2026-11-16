@@ -76,6 +76,45 @@ describe("identifier and heading extraction", () => {
   it("reports scanned / textless documents as unsupported", () => {
     expect(analyze([page([])], "solutions").warnings[0]).toContain("Scanned");
   });
+  it("recognizes a body-sized question whose wrapped first line crosses the top margin", () => {
+    const a = analyze(
+      [
+        page([
+          span("1. Explain the first observation.", 120, 54, 10.8),
+          span(sentence, 150, 54, 10.8),
+        ]),
+        page(
+          [
+            span("2.", 36.17, 54, 10.8),
+            span("Describe how the membrane changes when", 36.17, 65, 10.8),
+            span("the surrounding temperature increases.", 48.17, 54, 10.8),
+            span("3. Compare the two observations.", 160, 54, 10.8),
+          ],
+          2,
+        ),
+      ],
+      "questions",
+    );
+    expect(a.headings.map((h) => h.id)).toEqual(["1", "2", "3"]);
+    expect(a.headings[1].top).toBeLessThan(36.17);
+    expect(a.headings[1].text).toContain("Describe how the membrane");
+  });
+  it("keeps repeated running headings outside the body even when they cross the margin", () => {
+    const a = analyze(
+      [1, 2].map((n) =>
+        page(
+          [
+            span("1.2.3. Repeated chapter running header", 36),
+            span(sentence, 50),
+            span(`1.1.${n}. The actual exercise.`, 120),
+          ],
+          n,
+        ),
+      ),
+      "questions",
+    );
+    expect(a.headings.map((h) => h.id)).toEqual(["1.1.1", "1.1.2"]);
+  });
 });
 describe("matching safety", () => {
   it("keeps unsafe question bounds unresolved even with one safe answer", () => {
@@ -141,7 +180,36 @@ describe("matching safety", () => {
   });
 });
 describe("bounded original page regions", () => {
-  it("includes all continuation pages, removes headers/footers and excludes neighboring answers", () => {
+  it("includes complete continuation pages, including text near the top edge", () => {
+    const a = analyze(
+      [
+        page([
+          span("1. Explain the difference.", 620, 54, 10.8),
+          span(sentence, 650, 54, 10.8),
+        ]),
+        page(
+          [
+            span("Running header", 20, 54, 10.8),
+            span(
+              "The first material has tightly packed molecules.",
+              38.09,
+              54,
+              10.8,
+            ),
+            span("The second material contains larger gaps.", 52.01, 54, 10.8),
+            span("2. The next original answer.", 90, 54, 10.8),
+          ],
+          2,
+        ),
+      ],
+      "solutions",
+    );
+    const continuation = a.solutions[0].regions[1];
+    expect(continuation.y).toBe(0);
+    expect(a.solutions[0].text).toContain("The first material");
+    expect(a.solutions[0].text).toContain("Running header");
+  });
+  it("retains page edges on continuations and excludes neighboring answers", () => {
     const a = analyze(
       [
         page([
@@ -173,9 +241,53 @@ describe("bounded original page regions", () => {
     const r = a.solutions[0].regions;
     expect(r.map((x) => x.page)).toEqual([1, 2, 3]);
     expect(r[0].y).toBeLessThan(600);
-    expect(r[1].y).toBeGreaterThan(35);
-    expect(r[1].y + r[1].height).toBeLessThan(760);
+    expect(r[0].y + r[0].height).toBe(792);
+    expect(r[1].y).toBe(0);
+    expect(r[1].y + r[1].height).toBe(792);
     expect(r[2].y + r[2].height).toBeLessThan(180);
+  });
+  it("preserves a diagram extending below the usual text margin", () => {
+    // A vector diagram need not appear in extracted text. This bottom matches
+    // the near-page-edge molecular diagram that exposed the cropped answer.
+    const diagramBottom = 779;
+    const a = analyze(
+      [
+        page([span("1. Explain the molecular diagram below.", 515)]),
+        page(
+          [
+            span("(a) The answer continues here.", 60),
+            span("2. Next answer.", 180),
+          ],
+          2,
+        ),
+      ],
+      "solutions",
+    );
+    const first = a.solutions[0].regions[0];
+    expect(first.y).toBeLessThan(515);
+    expect(first.y + first.height).toBeGreaterThanOrEqual(diagramBottom);
+    expect(
+      a.solutions[0].regions[1].y + a.solutions[0].regions[1].height,
+    ).toBeLessThan(180);
+    expect(a.solutions[0].text).not.toContain("Next answer.");
+  });
+  it("keeps a bounded diagram page whose only extracted text is a footer", () => {
+    const a = analyze(
+      [
+        page([span("1. Explain the figure on the next page.", 600)]),
+        page([span("2", 770)], 2),
+        page([span("2. Next answer.", 100)], 3),
+      ],
+      "solutions",
+    );
+    const diagramPage = a.solutions[0].regions.find((r) => r.page === 2);
+    expect(diagramPage).toBeDefined();
+    expect(diagramPage!.y).toBe(0);
+    expect(diagramPage!.height).toBe(792);
+    expect(
+      a.solutions[0].regions.at(-1)!.y + a.solutions[0].regions.at(-1)!.height,
+    ).toBeLessThan(100);
+    expect(a.solutions[0].text).not.toContain("Next answer.");
   });
   it("ends before a section transition even when the next answer starts later", () => {
     const a = analyze(
